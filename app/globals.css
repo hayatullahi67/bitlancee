@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* ─── Design Tokens ──────────────────────────────────────────────────── */
+:root {
+  /* Brand */
+  --color-primary:       #F97316;   /* orange-500  */
+  --color-primary-hover: #EA6C0A;   /* orange-600  */
+  --color-primary-fg:    #FFFFFF;
+
+  /* Neutrals */
+  --color-bg:            #FAF8F5;   /* warm off-white */
+  --color-surface:       #FFFFFF;
+  --color-border:        #E8E2D9;
+
+  /* Text */
+  --color-text-primary:  #1A1A1A;
+  --color-text-secondary:#6B7280;
+  --color-text-muted:    #9CA3AF;
+
+  /* Nav active underline */
+  --color-nav-active:    #F97316;
+
+  /* Spacing */
+  --nav-height: 72px;
+
+  /* Radius */
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-full: 9999px;
+
+  /* Shadow */
+  --shadow-navbar: 0 1px 3px 0 rgb(0 0 0 / .06), 0 1px 2px -1px rgb(0 0 0 / .06);
+}
+
+/* ─── Base Reset ─────────────────────────────────────────────────────── */
+/* *, *::before, *::after { box-sizing: border-box; margin: 0; } */
+
+html { height: 100%; -webkit-font-smoothing: antialiased; }
+
+body {
+  min-height: 100%;
+  font-family: var(--font-geist-sans, 'Inter', system-ui, sans-serif);
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+}
