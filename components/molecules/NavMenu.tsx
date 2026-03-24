@@ -2,7 +2,7 @@ import NavLink from '../atoms/NavLink';
 
 const NAV_ITEMS = [
   { label: 'Home', href: '/' },
-  { label: 'Category', href: '/category' },
+  { label: 'Find Work', href: '/findwork' },
   { label: 'How It Works', href: '/how-it-works' },
   { label: 'About', href: '/about' },
 ];

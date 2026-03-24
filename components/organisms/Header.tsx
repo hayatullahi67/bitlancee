@@ -99,7 +99,7 @@ import Button from '../atoms/Button';
 import Image from 'next/image';
 const NAV_ITEMS = [
   { label: 'Home', href: '/' },
-  { label: 'Category', href: '/category' },
+  { label: 'Find Work', href: '/findwork' },
   { label: 'How It Works', href: '/how-it-works' },
   { label: 'About', href: '/about' },
 ];
@@ -165,7 +165,7 @@ export default function Header() {
               <Button
                 variant="ghost"
                 className="hidden sm:inline-flex rounded-full bg-[#F7931A] hover:bg-[#F7931A] px-6 py-2 shadow-sm font-medium text-white"
-                href="/register"
+                href="/signup"
               >
                 Sign Up
               </Button>
