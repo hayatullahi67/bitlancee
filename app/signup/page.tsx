@@ -59,7 +59,9 @@ export default function SignupPage() {
                       : 'bg-[#F6F3F1] text-[#666] border-2 border-transparent hover:border-[#ddd]'
                   }`}
                 >
-                  <span className="text-lg mr-2">💼</span>
+                    <div className='flex justify-center'>
+                  <img src="/assets/work.png" className="w-6 h-6 mr-2" alt="work icon" />
+                     </div>in the header the hot 
                   Work
                   <br />
                   <span className="text-xs font-normal">As a Freelancer</span>
@@ -72,7 +74,9 @@ export default function SignupPage() {
                       : 'bg-[#F6F3F1] text-[#666] border-2 border-transparent hover:border-[#ddd]'
                   }`}
                 >
-                  <span className="text-lg mr-2">👥</span>
+                    <div className="flex justify-center">
+                  <img src="/assets/hire.png" className="w-6 h-6 mr-2 " alt="hire icon" />
+                   </div>
                   Hire
                   <br />
                   <span className="text-xs font-normal">As a Client</span>

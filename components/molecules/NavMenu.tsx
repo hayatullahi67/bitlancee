@@ -3,7 +3,7 @@ import NavLink from '../atoms/NavLink';
 const NAV_ITEMS = [
   { label: 'Home', href: '/' },
   { label: 'Find Work', href: '/findwork' },
-  { label: 'How It Works', href: '/how-it-works' },
+  { label: 'Find Freelancers', href: '/find-freelancers' },
   { label: 'About', href: '/about' },
 ];
 
