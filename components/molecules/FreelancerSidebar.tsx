@@ -73,20 +73,18 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
   return (
     <>
       {/* Mobile Menu Toggle Button */}
-      <button 
-        onClick={() => setIsOpen(!isOpen)}
-        className="lg:hidden fixed top-4 left-4 z-[60] p-2 bg-white rounded-xl border border-[#e7e2dc] shadow-sm text-[#8C4F00]"
-      >
-        {isOpen ? (
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        ) : (
+      {!isOpen && (
+        <button
+          onClick={() => setIsOpen(true)}
+          className="lg:hidden fixed top-6 left-4 z-[60] p-2 bg-white rounded-xl border border-[#e7e2dc] shadow-sm text-[#8C4F00]"
+        >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
-        )}
-      </button>
+        </button>
+      )}
 
       {/* Mobile Backdrop Overlay */}
       {isOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[50] lg:hidden"
           onClick={() => setIsOpen(false)}
         />
@@ -97,6 +95,17 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
         fixed lg:sticky top-0 left-0 z-50 w-[280px] h-screen bg-[#F5F0EB] flex flex-col px-4 py-8 gap-0 rounded-tr-[48px] rounded-br-[48px] transition-transform duration-300 ease-in-out shadow-sm overflow-y-auto
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
+
+        {/* Close Button Inside Sidebar */}
+        <button
+          onClick={() => setIsOpen(false)}
+          className="lg:hidden absolute top-4 right-4 z-[60] p-2 bg-white rounded-xl border border-[#e7e2dc] shadow-sm text-[#8C4F00]"
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
 
         {/* Avatar + Name + Badge */}
         <div className="flex flex-col items-start gap-0.5 mb-10 px-1">

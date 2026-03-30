@@ -22,8 +22,7 @@ export default function Hero() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@700;800&family=Inter:wght@400;500;600&display=swap');
-        .font-sora { font-family: 'Sora', sans-serif; }
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         .font-inter { font-family: 'Inter', sans-serif; }
       `}</style>
 
@@ -32,7 +31,7 @@ export default function Hero() {
 
           {/* LEFT */}
           <div className="w-full lg:w-[655px]">
-            <h1 className="font-sora text-3xl sm:text-4xl md:text-5xl lg:text-[68px] font-extrabold leading-tight sm:leading-[1.1] text-[#1a1a1a] tracking-tight">
+            <h1 className="font-inter text-3xl sm:text-4xl md:text-5xl lg:text-[68px] font-extrabold leading-tight sm:leading-[1.1] text-[#1a1a1a] tracking-tight">
               Work Online.<br />
               Get Paid in <span className="text-[#F7931A]">Bitcoin.</span>
             </h1>
@@ -89,7 +88,7 @@ export default function Hero() {
                   <span className="block text-[9px] sm:text-[10px] font-bold text-[#aaa] tracking-[0.08em] uppercase mb-[2px]">
                     Payment Received
                   </span>
-                  <div className="font-sora text-[14px] sm:text-[17px] font-bold text-[#1a1a1a] truncate">
+                  <div className="font-inter text-[14px] sm:text-[17px] font-bold text-[#1a1a1a] truncate">
                     {satsValues[payIndex]}
                   </div>
                 </div>

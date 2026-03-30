@@ -61,7 +61,7 @@ export default function SignupPage() {
                 >
                     <div className='flex justify-center'>
                   <img src="/assets/work.png" className="w-6 h-6 mr-2" alt="work icon" />
-                     </div>in the header the hot 
+                     </div>
                   Work
                   <br />
                   <span className="text-xs font-normal">As a Freelancer</span>

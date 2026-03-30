@@ -223,68 +223,88 @@ const USER_STATS = {
 
 export default function OverviewContent() {
   return (
-    <div className="max-w-7xl mx-auto p-4 md:p-6 space-y-8 bg-[#fcfcfb] min-h-screen">
-      
-      {/* 1. HEADER SECTION */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black text-[#1a1a1a] flex items-center gap-2">
-            Hey, Daniel 
-          </h1>
-          <p className="text-gray-500 font-medium">You have 2 new invitations to bid today.</p>
-        </div>
-        <div className="flex gap-3">
-          <button className="flex-1 md:flex-none px-6 py-3 bg-white border border-gray-200 rounded-2xl font-bold text-sm hover:bg-gray-50 transition-all">
-            My Portfolio
-          </button>
-          <button className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-orange-500 text-white px-6 py-3 rounded-2xl font-bold text-sm hover:bg-orange-600 transition-all shadow-lg shadow-orange-500/20">
-            <Plus className="w-4 h-4" />
-            Find Gigs
-          </button>
-        </div>
-      </header>
-
-      {/* 2. STATS GRID */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Revenue" value={USER_STATS.totalEarnings} sub={USER_STATS.earningsTrend} icon={<CircleDollarSign />} variant="dark" />
-        <StatCard title="Active Projects" value={USER_STATS.activeGigs} sub="Working" icon={<Briefcase />} />
-        <StatCard title="Job Success" value={USER_STATS.successRate} sub="Top Rated" icon={<Trophy />} />
-        <StatCard title="Profile Level" value="Level 2" sub="85% Complete" icon={<ShieldCheck />} />
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+    <section className="bg-[#FCF9F7] py-16">
+      <div className="mx-auto w-full max-w-7xl px-6 lg:px-8">
         
-        {/* 3. RECENT APPLICATIONS TABLE */}
-        <div className="xl:col-span-2 bg-white rounded-[32px] border border-gray-100 shadow-sm overflow-hidden">
-          <div className="p-6 border-b border-gray-50 flex items-center justify-between">
-            <h2 className="text-lg font-bold text-[#1a1a1a]">Recent Applications</h2>
-            <button className="text-orange-600 text-sm font-bold flex items-center gap-1 hover:underline">
-              View All <ArrowUpRight className="w-4 h-4" />
+        {/* 1. HEADER SECTION */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#F7931A]/10 rounded-xl">
+                <Rocket className="w-6 h-6 text-[#F7931A]" />
+              </div>
+              <h1 className="text-3xl font-extrabold text-[#1a1a1a] tracking-tight">Welcome, Satoshi!</h1>
+            </div>
+            <p className="text-[#6b6560] text-sm md:text-base font-medium">Ready to stack some more sats today?</p>
+          </div>
+          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
+            <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
+            Find New Gigs
+          </button>
+        </header>
+
+        {/* 2. STATS GRID */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          <StatCard 
+            title="Total Earnings" 
+            value={USER_STATS.totalEarnings} 
+            subtext={USER_STATS.earningsTrend} 
+            icon={<CircleDollarSign className="w-6 h-6" />}
+            trend="up"
+            variant="orange"
+          />
+          <StatCard 
+            title="Ongoing Gigs" 
+            value={USER_STATS.activeGigs} 
+            subtext="2 active today" 
+            icon={<Briefcase className="w-6 h-6" />}
+            trend="neutral"
+            variant="white"
+          />
+          <StatCard 
+            title="Reputation" 
+            value={USER_STATS.successRate} 
+            subtext="Top Rated Plus" 
+            icon={<Trophy className="w-6 h-6" />}
+            trend="up"
+            variant="white"
+          />
+        </div>
+
+        {/* 3. RECENT APPLICATIONS TABLE - now full width */}
+        <div className="bg-white rounded-3xl border border-[#ece7df] p-8 shadow-sm">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="w-1.5 h-6 bg-[#F7931A] rounded-full"></div>
+              <h2 className="text-lg sm:text-xl font-bold text-[#1a1a1a]">Recent Activity</h2>
+            </div>
+            <button className="text-sm font-bold text-[#8C4F00] hover:text-[#F7931A] transition-colors flex items-center gap-1 group">
+              View Log 
+              <ArrowUpRight className="w-4 h-4 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
             </button>
           </div>
-          
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse whitespace-nowrap">
               <thead>
-                <tr className="bg-gray-50/50 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
+                <tr className="bg-[#FCF9F7] text-[11px] uppercase tracking-wider text-[#6b6560] font-bold">
                   <th className="px-6 py-4">Project / Client</th>
                   <th className="px-6 py-4">Bid Amount</th>
                   <th className="px-6 py-4">Status</th>
                   <th className="px-6 py-4">Time</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-50">
+              <tbody className="divide-y divide-[#ece7df]">
                 {RECENT_APPLICATIONS.map((app) => (
-                  <tr key={app.id} className="hover:bg-gray-50/50 transition-colors group">
+                  <tr key={app.id} className="hover:bg-[#FCF9F7] transition-colors group">
                     <td className="px-6 py-4">
-                      <div className="font-bold text-[#1a1a1a] group-hover:text-orange-600 transition-colors">{app.project}</div>
-                      <div className="text-xs text-gray-400">{app.client}</div>
+                      <div className="font-bold text-[#1a1a1a] group-hover:text-[#F7931A] transition-colors">{app.project}</div>
+                      <div className="text-xs text-[#6b6560]">{app.client}</div>
                     </td>
-                    <td className="px-6 py-4 font-mono text-sm font-bold text-gray-700">{app.amount}</td>
+                    <td className="px-6 py-4 font-mono text-sm font-bold text-[#1a1a1a]">{app.amount}</td>
                     <td className="px-6 py-4">
                       <StatusBadge status={app.status} />
                     </td>
-                    <td className="px-6 py-4 text-xs text-gray-400">
+                    <td className="px-6 py-4 text-xs text-[#6b6560]">
                       <div className="flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {app.date}
                       </div>
@@ -295,45 +315,8 @@ export default function OverviewContent() {
             </table>
           </div>
         </div>
-
-        {/* 4. SIDEBAR - PROFILE PROGRESS */}
-        <div className="space-y-6">
-          <div className="bg-[#1a1a1a] rounded-[32px] p-6 text-white relative overflow-hidden">
-            <div className="relative z-10">
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-2 bg-orange-500 rounded-xl">
-                  <Rocket className="w-5 h-5 text-white" />
-                </div>
-                <span className="text-[10px] font-black bg-white/10 px-2 py-1 rounded uppercase tracking-widest text-orange-400">Boosted</span>
-              </div>
-              <h3 className="text-xl font-bold mb-1">Profile Strength</h3>
-              <p className="text-sm text-gray-400 mb-6">Complete your profile to unlock high-ticket BTC gigs.</p>
-              
-              <div className="space-y-2 mb-8">
-                <div className="flex justify-between text-xs font-bold">
-                  <span>Progress</span>
-                  <span>{USER_STATS.profileCompletion}%</span>
-                </div>
-                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-gradient-to-r from-orange-600 to-orange-400 transition-all duration-1000"
-                    style={{ width: `${USER_STATS.profileCompletion}%` }}
-                  />
-                </div>
-              </div>
-              
-              <button className="w-full py-3 bg-white text-black rounded-xl font-bold text-sm hover:bg-orange-50 transition-all active:scale-95">
-                Complete Profile
-              </button>
-            </div>
-            {/* Decorative background circle */}
-            <div className="absolute -bottom-10 -right-10 w-32 h-32 bg-orange-500/20 rounded-full blur-2xl"></div>
-          </div>
-
-        </div>
-
       </div>
-    </div>
+    </section>
   );
 }
 

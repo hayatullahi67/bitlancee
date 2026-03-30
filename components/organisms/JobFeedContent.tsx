@@ -69,43 +69,46 @@ export default function JobFeedContent() {
   }, [searchTerm, activeCategory]);
 
   return (
-    <div className=" mx-5 my-10  space-y-8 bg-[#fcfcfb] min-h-screen">
-      
-      {/* HEADER SECTION */}
-      <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-        <div>
-          <h1 className="text-3xl font-black text-[#1a1a1a] tracking-tight">Job Feed</h1>
-          <p className="text-gray-500 font-medium">Browse and apply to the best Bitcoin-native opportunities.</p>
-        </div>
+    <section className="bg-[#FCF9F7] py-16">
+      <div className="mx-auto w-full max-w-7xl px-6 lg:px-8">
         
-        <div className="flex gap-4">
-          <button className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-[#1a1a1a] text-white px-6 py-3.5 rounded-2xl font-bold text-sm hover:bg-orange-600 transition-all shadow-lg active:scale-95">
-             My Saved Jobs
+        {/* HEADER SECTION */}
+        <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
+          <div className="space-y-1">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-[#F7931A]/10 rounded-xl">
+                <Zap className="w-6 h-6 text-[#F7931A]" />
+              </div>
+              <h1 className="text-3xl font-extrabold text-[#1a1a1a] tracking-tight">Job Feed</h1>
+            </div>
+            <p className="text-[#6b6560] text-sm md:text-base font-medium">Browse and apply to the best Bitcoin-native opportunities.</p>
+          </div>
+          
+          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
+            <Bookmark className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
+            My Saved Jobs
+          </button>
+        </header>
+
+        {/* SEARCH AND FILTERS */}
+        <div className="flex flex-col md:flex-row gap-4 mb-10">
+          <div className="relative flex-1">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#6b6560]" />
+            <input 
+              type="text" 
+              placeholder="Search for bitcoin jobs, stacks, or keywords..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-white border border-[#ece7df] rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#F7931A]/10 focus:border-[#F7931A] transition-all shadow-sm"
+            />
+          </div>
+          <button className="flex items-center justify-center gap-2 bg-white border border-[#ece7df] px-6 py-4 rounded-2xl font-bold text-sm text-[#1a1a1a] hover:bg-[#F7931A]/5 transition-all shadow-sm">
+            <Filter className="w-4 h-4 text-[#F7931A]" />
+            Filter
+            <ChevronDown className="w-4 h-4 text-[#6b6560]" />
           </button>
         </div>
-      </header>
 
-      {/* SEARCH AND FILTERS */}
-      <div className="flex flex-col md:flex-row gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-          <input 
-            type="text" 
-            placeholder="Search for bitcoin jobs, stacks, or keywords..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-white border border-gray-100 rounded-2xl py-4 pl-12 pr-4 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/10 focus:border-orange-500 transition-all shadow-sm"
-          />
-        </div>
-        <button className="flex items-center justify-center gap-2 bg-white border border-gray-100 px-6 py-4 rounded-2xl font-bold text-sm text-[#1a1a1a] hover:bg-orange-50 transition-all shadow-sm">
-          <Filter className="w-4 h-4 text-orange-600" />
-          Filter
-          <ChevronDown className="w-4 h-4 text-gray-400" />
-        </button>
-      </div>
-
-      <div className="space-y-6">
-        
         {/* MAIN FEED */}
         <div className="space-y-6">
           {/* Quick Category Chips */}
@@ -116,8 +119,8 @@ export default function JobFeedContent() {
                 onClick={() => setActiveCategory(cat)}
                 className={`px-6 py-2 rounded-full text-xs font-bold transition-all border ${
                   activeCategory === cat 
-                    ? 'bg-orange-500 text-white border-orange-500 shadow-lg shadow-orange-500/20' 
-                    : 'bg-white text-gray-500 border-gray-100 hover:border-orange-200'
+                    ? 'bg-[#8C4F00] text-white border-[#8C4F00] shadow-lg shadow-[#F7931A]/20' 
+                    : 'bg-white text-[#6b6560] border-[#ece7df]'
                 }`}
               >
                 {cat}
@@ -131,73 +134,70 @@ export default function JobFeedContent() {
                 <JobFeedCard key={job.id} job={job} />
               ))
             ) : (
-              <div className="bg-white rounded-[40px] border border-orange-100 border-dashed p-10 text-center">
-                <Search className="w-12 h-12 text-orange-200 mx-auto mb-4" />
-                <h3 className="text-lg font-bold">No results found</h3>
-                <p className="text-gray-400 text-sm">Try a different search term or filter.</p>
+              <div className="bg-white rounded-3xl border border-[#F7931A]/20 border-dashed p-10 text-center">
+                <Search className="w-12 h-12 text-[#F7931A]/30 mx-auto mb-4" />
+                <h3 className="text-lg font-bold text-[#1a1a1a]">No results found</h3>
+                <p className="text-[#6b6560] text-sm">Try a different search term or filter.</p>
               </div>
             )}
           </div>
         </div>
       </div>
-    </div>
+    </section>
   );
 }
 
 function JobFeedCard({ job }: { job: any }) {
   return (
-    <div className="bg-white rounded-[32px] border border-gray-100 p-6 md:p-7 shadow-sm transition-all hover:shadow-xl hover:border-orange-200 group cursor-default relative overflow-hidden">
-      {job.urgent && (
-        <div className="absolute top-0 right-0">
-          <div className="bg-orange-500 text-white text-[9px] font-black px-4 py-1.5 rounded-bl-2xl uppercase tracking-widest shadow-lg">
-            Urgent
-          </div>
+    <div className="bg-white rounded-3xl border border-[#ece7df] p-6 shadow-sm transition-all hover:shadow-xl hover:border-[#F7931A]/30 group">
+      {/* Top row: Urgent badge and posted time */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          {job.urgent && (
+            <span className="bg-[#FCF9F7] text-[#8C4F00] text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">
+              Urgent
+            </span>
+          )}
+          <span className="text-xs text-[#6b6560] font-medium">{job.postedAt}</span>
         </div>
-      )}
+      </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
-        <div className="flex items-center justify-center w-14 h-14 md:w-16 md:h-16 rounded-[22px] bg-orange-50 group-hover:bg-orange-500 transition-all group-hover:rotate-6">
-           <Zap className="w-7 h-7 text-orange-600 group-hover:text-white" />
-        </div>
+      {/* Title and price */}
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <h3 className="text-lg font-bold text-[#1a1a1a]  transition-colors flex-1">
+          {job.title}
+        </h3>
+        <span className="text-[15px] font-bold text-[#8C4F00] whitespace-nowrap">{job.price}</span>
+      </div>
 
-        <div className="flex-1 space-y-4">
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-               <h3 className="text-xl font-black text-[#1a1a1a] group-hover:text-orange-600 transition-colors">{job.title}</h3>
-               <div className="text-xl font-black text-[#1a1a1a]">{job.price}</div>
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-gray-400 uppercase tracking-wider">
-              <span className="flex items-center gap-1.5"><Briefcase className="w-3.5 h-3.5" /> {job.client}</span>
-              <span className="flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" /> {job.postedAt}</span>
-              <span className="flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" /> Remote</span>
-            </div>
-          </div>
+      {/* Client info */}
+      <div className="flex items-center gap-2 mb-4">
+        <Briefcase className="w-4 h-4 text-[#6b6560]" />
+        <span className="text-sm font-medium text-[#6b6560]">{job.client}</span>
+        <span className="text-xs text-[#6b6560]">•</span>
+        <span className="text-xs text-[#6b6560]">{job.experience}</span>
+      </div>
 
-          <p className="text-sm text-gray-500 leading-relaxed font-medium line-clamp-2">
-            {job.description}
-          </p>
+      {/* Description */}
+      <p className="text-sm text-[#6b6560] leading-relaxed mb-4 line-clamp-2">
+        {job.description}
+      </p>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pt-2">
-            <div className="flex flex-wrap gap-2">
-              {job.tags.map((tag: string) => (
-                <span key={tag} className="px-3 py-1 bg-gray-50 text-gray-500 text-[10px] font-black rounded-lg uppercase tracking-widest group-hover:bg-orange-50 group-hover:text-orange-600 transition-colors">
-                  {tag}
-                </span>
-              ))}
-            </div>
-            
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <button className="p-3.5 bg-gray-50 text-gray-400 rounded-2xl hover:bg-orange-50 hover:text-orange-500 transition-all border border-transparent hover:border-orange-100 flex-shrink-0">
-                <Bookmark className="w-5 h-5 fill-none" />
-              </button>
-              <button className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-[#1a1a1a] text-white px-8 py-3.5 rounded-2xl font-bold text-sm hover:bg-orange-600 transition-all shadow-lg active:scale-95 group/btn border border-transparent">
-                Apply Now
-                <ArrowUpRight className="w-4 h-4 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Tags */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        {job.tags.map((tag: string) => (
+          <span key={tag} className="px-3 py-1 bg-[#FCF9F7] text-[#6b6560] text-[10px] font-bold rounded-full border border-[#ece7df] group-hover:bg-[#F7931A]/10 group-hover:text-[#F7931A] group-hover:border-[#F7931A]/30 transition-colors">
+            {tag}
+          </span>
+        ))}
+      </div>
+
+      {/* Apply button */}
+      <div className="flex justify-end">
+        <button className="flex items-center justify-center gap-2 bg-[#8C4F00] text-white px-6 py-3 rounded-2xl font-bold text-sm hover:bg-[#F7931A] transition-all shadow-lg active:scale-95 group/btn">
+          Apply Now
+          <ArrowUpRight className="w-4 h-4 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
+        </button>
       </div>
     </div>
   );
