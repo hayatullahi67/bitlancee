@@ -68,10 +68,10 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
       <ChatHeader sender={message.sender} onBack={onBack} />
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-0 sm:px-5 py-6">
+      <div className="flex-1 overflow-y-auto px-1 sm:px-5 py-3 sm:py-6">
         {/* Date separator */}
-        <div className="flex justify-center mb-6">
-          <span className="bg-[#F3F1ED] text-xs text-gray-500 px-4 py-1 rounded-full font-medium tracking-wide shadow-sm">TODAY, OCT 24</span>
+        <div className="flex justify-center mb-4 sm:mb-6">
+          <span className="bg-[#F3F1ED] text-[11px] sm:text-xs text-gray-500 px-3 sm:px-4 py-0.5 sm:py-1 rounded-full font-medium tracking-wide shadow-sm">TODAY, OCT 24</span>
         </div>
         {chatMessages.map((msg) => (
           <ChatMessage key={msg.id} message={msg} />
@@ -80,11 +80,11 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
       </div>
 
       {/* Message Input */}
-      <div className="border-t border-[#e8e6e1] bg-white px-4 py-3">
-        <div className="flex items-end gap-2">
+      <div className="border-t border-[#e8e6e1] bg-white px-2 sm:px-4 py-2 sm:py-3">
+        <div className="flex items-end gap-1 sm:gap-2">
           {/* Attachment button */}
-          <button className="p-2 text-gray-400 hover:text-gray-600 transition-colors">
-            <Paperclip className="w-5 h-5" />
+          <button className="p-1.5 sm:p-2 text-gray-400 hover:text-gray-600 transition-colors">
+            <Paperclip className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
 
           {/* Message input */}
@@ -94,7 +94,7 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
               onChange={(e) => setNewMessage(e.target.value)}
               onKeyPress={handleKeyPress}
               placeholder="Type your message here..."
-              className="w-full px-4 py-3 bg-[#F7F6F3] border border-[#ece7df] rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/20 resize-none min-h-[44px] max-h-32"
+              className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-[#F7F6F3] border border-[#ece7df] rounded-full text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/20 resize-none min-h-[36px] sm:min-h-[44px] max-h-32"
               rows={1}
             />
           </div>
@@ -103,14 +103,14 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
           <Button
             onClick={handleSendMessage}
             disabled={!newMessage.trim()}
-            className="p-3 bg-[#CC7000] hover:bg-[#A85C00] text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+            className="p-2.5 sm:p-3 bg-[#CC7000] hover:bg-[#A85C00] text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
           >
             <Send className="w-4 h-4" />
           </Button>
         </div>
 
         {/* Typing indicator - optional */}
-        <div className="mt-2 text-xs text-gray-400 min-h-[18px]">
+        <div className="mt-1 sm:mt-2 text-[11px] sm:text-xs text-gray-400 min-h-[16px] sm:min-h-[18px]">
           {message.sender.isOnline && (
             <span>{message.sender.name} is online</span>
           )}
@@ -118,7 +118,7 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
       </div>
 
       {/* Footer note */}
-      <div className="text-center text-[11px] text-gray-400 py-2 tracking-wide bg-[#FCF9F7CC]">
+      <div className="text-center text-[10px] sm:text-[11px] text-gray-400 py-1.5 sm:py-2 tracking-wide bg-[#FCF9F7CC]">
         PAYMENTS ARE SECURED VIA BITLANCE ESCROW
       </div>
     </div>

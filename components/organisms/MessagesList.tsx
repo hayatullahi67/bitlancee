@@ -28,23 +28,23 @@ export default function MessagesList({ messages, onSelectChat, selectedChat }: M
   return (
     <div className="h-full flex flex-col bg-[#F6F3F1]">
       {/* Header */}
-      <div className="p-5 pb-2 border-b border-[#e8e6e1] bg-[#F6F3F1]">
-        <h1 className="text-lg font-bold text-[#232323] mb-1">Conversations</h1>
+      <div className="p-3 sm:p-5 pb-1.5 sm:pb-2 border-b border-[#e8e6e1] bg-[#F6F3F1]">
+        <h1 className="text-base sm:text-lg font-bold text-[#232323] mb-0.5 sm:mb-1">Conversations</h1>
         <p className="text-xs text-gray-400">
           {messages.filter(m => m.unreadCount > 0).length} unread conversation{messages.filter(m => m.unreadCount > 0).length === 1 ? '' : 's'}
         </p>
       </div>
 
       {/* Search - optional for now */}
-      <div className="p-5 pt-3 border-b border-[#f0ede8] bg-[#F6F3F1]">
+      <div className="p-3 pt-2 sm:p-5 sm:pt-3 border-b border-[#f0ede8] bg-[#F6F3F1]">
         <div className="relative">
           <input
             type="text"
             placeholder="Search chats..."
-            className="w-full pl-10 pr-4 py-2 bg-[#ffffff]   rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/20"
+            className="w-full pl-9 pr-3 sm:pl-10 sm:pr-4 py-1.5 sm:py-2 bg-[#ffffff] rounded-full text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/20"
           />
           <svg
-            className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400"
+            className="absolute left-2.5 sm:left-3 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"

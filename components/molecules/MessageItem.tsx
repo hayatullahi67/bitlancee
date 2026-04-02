@@ -28,17 +28,17 @@ export default function MessageItem({ message, isSelected, onClick }: MessageIte
     <div
       onClick={onClick}
       className={`
-        p-4 border-b border-[#f0ede8] cursor-pointer transition-all flex items-stretch bg-[#F6F3F1]
+        p-3 sm:p-4 border-b border-[#f0ede8] cursor-pointer transition-all flex items-stretch bg-[#F6F3F1]
         ${isSelected
           ? 'border-l-4 border-l-[#F7931A] bg-[#FFFFFF] shadow-sm'
           : 'hover:bg-[#f9f6f2]'}
       `}
-      style={{ minHeight: 80 }}
+      style={{ minHeight: 64 }}
     >
-      <div className="flex items-center gap-3 w-full">
+      <div className="flex items-center gap-2 sm:gap-3 w-full">
         {/* Avatar */}
         <div className="relative">
-          <div className="w-12 h-12 rounded-full bg-[#e8dfd4] flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
+          <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-full bg-[#e8dfd4] flex items-center justify-center overflow-hidden border-2 border-white shadow-sm">
             <img
               src={message.sender.avatar}
               alt={message.sender.name}
@@ -46,18 +46,18 @@ export default function MessageItem({ message, isSelected, onClick }: MessageIte
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = 'none';
-                target.parentElement!.innerHTML = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8C4F00" strokeWidth="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
+                target.parentElement!.innerHTML = `<svg width=\"24\" height=\"24\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#8C4F00\" strokeWidth=\"1.5\"><circle cx=\"12\" cy=\"8\" r=\"4\"/><path d=\"M4 20c0-4 3.6-7 8-7s8 3 8 7\"/></svg>`;
               }}
             />
           </div>
           {/* Online indicator */}
           {message.sender.isOnline && (
-            <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></div>
+            <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 sm:w-4 sm:h-4 bg-green-500 border-2 border-white rounded-full"></div>
           )}
         </div>
 
         {/* Message Content */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 text-xs sm:text-sm">
           <div className="flex items-center justify-between mb-1">
             <h3 className="font-bold text-sm text-[#1a1a1a] truncate">
               {message.sender.name}
