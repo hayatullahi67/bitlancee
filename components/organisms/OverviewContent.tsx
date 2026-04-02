@@ -237,7 +237,7 @@ export default function OverviewContent() {
             </div>
             <p className="text-[#6b6560] text-sm md:text-base font-medium">Ready to stack some more sats today?</p>
           </div>
-          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
+          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
             <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
             Find New Gigs
           </button>

@@ -92,7 +92,7 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
 
       {/* Sidebar Container */}
       <aside className={`
-        fixed lg:sticky top-0 left-0 z-50 w-[280px] h-screen bg-[#F5F0EB] flex flex-col px-4 py-8 gap-0 rounded-tr-[48px] rounded-br-[48px] transition-transform duration-300 ease-in-out shadow-sm overflow-y-auto
+        fixed lg:sticky top-0 left-0 z-50 w-[280px] h-[100vh] bg-[#F5F0EB] flex flex-col px-4 py-8 gap-0 rounded-tr-[48px] rounded-br-[48px] transition-transform duration-300 ease-in-out shadow-sm overflow-y-auto
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
 

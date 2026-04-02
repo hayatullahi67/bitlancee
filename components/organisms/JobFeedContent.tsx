@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { 
   Search, 
   Filter, 
@@ -14,47 +15,9 @@ import {
   Zap,
   Globe
 } from 'lucide-react';
+import { MOCK_JOBS } from '../../lib/jobs';
 
 const CATEGORIES = ['Development', 'Design', 'Marketing', 'Finance', 'Writing'];
-
-const MOCK_JOBS = [
-  {
-    id: 1,
-    title: 'Lightning Network Integration for POS',
-    client: 'SatoshiLab',
-    price: '2.4M Sats',
-    type: 'Fixed Price',
-    experience: 'Expert',
-    postedAt: '2h ago',
-    description: 'Build Lightning integration for terminal fleet with offline fallback and security checks.',
-    tags: ['Lightning', 'Go', 'Remote'],
-    urgent: true
-  },
-  {
-    id: 2,
-    title: 'UI/UX Designer for Bitcoin Wallet App',
-    client: 'BitFlow',
-    price: '850k Sats',
-    type: 'Fixed',
-    experience: 'Intermediate',
-    postedAt: '6h ago',
-    description: 'Design a clean, low-friction wallet experience for first-time BTC users.',
-    tags: ['Figma', 'UI/UX', 'Fintech'],
-    urgent: false
-  },
-  {
-    id: 3,
-    title: 'Smart Contract Audit for LN Rewards',
-    client: 'BlockSecure',
-    price: '1.2M Sats',
-    type: 'Fixed',
-    experience: 'Expert',
-    postedAt: '1d ago',
-    description: 'Conduct comprehensive security audit for rewards platform on Bitcoin L2.',
-    tags: ['Rust', 'Security', 'L2'],
-    urgent: false
-  }
-];
 
 export default function JobFeedContent() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -84,7 +47,7 @@ export default function JobFeedContent() {
             <p className="text-[#6b6560] text-sm md:text-base font-medium">Browse and apply to the best Bitcoin-native opportunities.</p>
           </div>
           
-          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
+          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
             <Bookmark className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
             My Saved Jobs
           </button>
@@ -119,7 +82,7 @@ export default function JobFeedContent() {
                 onClick={() => setActiveCategory(cat)}
                 className={`px-6 py-2 rounded-full text-xs font-bold transition-all border ${
                   activeCategory === cat 
-                    ? 'bg-[#8C4F00] text-white border-[#8C4F00] shadow-lg shadow-[#F7931A]/20' 
+                    ? 'bg-gradient-to-r from-orange-600 to-orange-400 text-white  shadow-lg shadow-[#F7931A]/20' 
                     : 'bg-white text-[#6b6560] border-[#ece7df]'
                 }`}
               >
@@ -148,6 +111,8 @@ export default function JobFeedContent() {
 }
 
 function JobFeedCard({ job }: { job: any }) {
+  const router = useRouter();
+
   return (
     <div className="bg-white rounded-3xl border border-[#ece7df] p-6 shadow-sm transition-all hover:shadow-xl hover:border-[#F7931A]/30 group">
       {/* Top row: Urgent badge and posted time */}
@@ -194,7 +159,10 @@ function JobFeedCard({ job }: { job: any }) {
 
       {/* Apply button */}
       <div className="flex justify-end">
-        <button className="flex items-center justify-center gap-2 bg-[#8C4F00] text-white px-6 py-3 rounded-2xl font-bold text-sm hover:bg-[#F7931A] transition-all shadow-lg active:scale-95 group/btn">
+        <button 
+          onClick={() => router.push(`/job/${job.id}`)}
+          className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-orange-400 text-white px-6 py-3 rounded-2xl font-bold text-sm hover:bg-[#F7931A] transition-all shadow-lg active:scale-95 group/btn"
+        >
           Apply Now
           <ArrowUpRight className="w-4 h-4 group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform" />
         </button>
