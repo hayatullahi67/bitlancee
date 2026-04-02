@@ -60,13 +60,13 @@ export default function ChatHeader({ sender, onBack }: ChatHeaderProps) {
       <div className="flex items-center gap-1">
         <button className="text-xs sm:text-sm font-medium text-[#232323] hover:underline mr-1 sm:mr-2">View Profile</button>
         {/* Back button beside profile for mobile only (duplicate for right side) */}
-        <button
+        {/* <button
           onClick={onBack}
           className="md:hidden p-2 hover:bg-gray-100 rounded-full transition-colors"
           aria-label="Back"
         >
           <ArrowLeft className="w-5 h-5 text-gray-600" />
-        </button>
+        </button> */}
         <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full">
           <MoreVertical className="w-5 h-5" />
         </button>
