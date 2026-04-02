@@ -15,7 +15,7 @@ interface ChatHeaderProps {
 export default function ChatHeader({ sender, onBack }: ChatHeaderProps) {
   return (
     <div
-      className="bg-[#F6F3F1] border-b mt-[70px]   border-[#e8e6e1] px-3 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 min-h-[56px]"
+      className="bg-[#F6F3F1] border-b    border-[#e8e6e1] px-3 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 min-h-[56px]"
       style={{ minHeight: '48px' }}
     >
       {/* Back button - mobile/tablet only */}

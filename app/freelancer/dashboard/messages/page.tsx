@@ -119,11 +119,11 @@ export default function MessagesPage() {
         <FreelancerSidebar active="/freelancer/dashboard/messages" />
 
         {/* Main Content */}
-        <div className="flex-1 lg:ml-0">
+        <div className="flex-1 mt-[50px] lg:ml-0">
           <div className="h-screen flex pt-4 md:pt-0"> {/* Add pt-4 for mobile to avoid overlay */}
             {/* Messages List - Hidden on mobile/tablet when chat is selected */}
             <div className={`
-              w-full md:w-1/3 border-r border-[#e8e6e1] bg-[#F6F3F1]
+              w-full md:w-1/3 border-r border-[#e8e6e1]  bg-[#F6F3F1]
               ${selectedChat ? 'hidden md:block' : 'block'}
               pt-2 md:pt-0
             `}>

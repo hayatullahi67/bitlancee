@@ -68,10 +68,10 @@ export default function MessageItem({ message, isSelected, onClick }: MessageIte
           </div>
 
           <p className={`
-            text-sm truncate
+            text-xs sm:text-sm truncate
             ${message.lastMessage.isRead ? 'text-gray-500' : 'text-[#1a1a1a] font-medium'}
           `}>
-            {message.lastMessage.text}
+            {message.lastMessage.text.length > 40 ? message.lastMessage.text.slice(0, 40) + '...' : message.lastMessage.text}
           </p>
         </div>
 

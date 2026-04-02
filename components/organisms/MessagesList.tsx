@@ -26,7 +26,7 @@ interface MessagesListProps {
 
 export default function MessagesList({ messages, onSelectChat, selectedChat }: MessagesListProps) {
   return (
-    <div className="h-full flex flex-col bg-[#F6F3F1]">
+    <div className="h-full  flex flex-col bg-[#F6F3F1]">
       {/* Header */}
       <div className="p-3 sm:p-5 pb-1.5 sm:pb-2 border-b border-[#e8e6e1] bg-[#F6F3F1]">
         <h1 className="text-base sm:text-lg font-bold text-[#232323] mb-0.5 sm:mb-1">Conversations</h1>
