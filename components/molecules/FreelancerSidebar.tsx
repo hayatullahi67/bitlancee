@@ -108,7 +108,7 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
         </button>
 
         {/* Avatar + Name + Badge */}
-        <div className="flex flex-col items-start gap-0.5 mb-10 px-1">
+        <Link href="/freelancer/dashboard/profile" onClick={() => setIsOpen(false)} className="flex flex-col items-start gap-0.5 mb-10 px-1">
           <div className="w-14 h-14 rounded-full bg-[#e8dfd4] flex items-center justify-center mb-3 overflow-hidden border-2 border-white shadow-md">
             <img
               src="/assets/avatar.png"
@@ -123,7 +123,7 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
           </div>
           <h3 className="text-base font-black text-[#1a1a1a] leading-tight">Satoshi Nakamoto</h3>
           <p className="text-[11px] font-black text-orange-600 uppercase tracking-widest">Top Rated</p>
-        </div>
+        </Link>
 
         {/* Navigation */}
         <nav className="flex flex-col gap-1.5 flex-1">
