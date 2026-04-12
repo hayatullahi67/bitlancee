@@ -226,6 +226,12 @@ export default function ProfilePage() {
     performanceData,
   } = profile;
 
+  const bioText = bio ?? "";
+  const skillsList = skills ?? [];
+  const workHistoryList = workHistory ?? [];
+  const portfolioItemsList = portfolioItems ?? [];
+  const performanceDataList = performanceData ?? [];
+
   useEffect(() => {
     const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
       if (!user) return;
@@ -415,7 +421,7 @@ export default function ProfilePage() {
                           </label>
                           <textarea
                             rows={4}
-                            value={bio ?? ""}
+                            value={bioText}
                             onChange={(e) =>
                               setProfile((prev) => ({ ...prev, bio: e.target.value }))
                             }
@@ -443,7 +449,7 @@ export default function ProfilePage() {
                                   }));
                                   setSkillInput("");
                                 }
-                                if (e.key === "Backspace" && !skillInput && (skills?.length ?? 0) > 0) {
+                                if (e.key === "Backspace" && !skillInput && skillsList.length > 0) {
                                   setProfile((prev) => ({
                                     ...prev,
                                     skills: (prev.skills ?? []).slice(0, -1),
@@ -453,9 +459,9 @@ export default function ProfilePage() {
                               className="w-full bg-transparent text-[12px] focus:outline-none"
                               placeholder="Type a skill and press Enter"
                             />
-                            {skills?.length ? (
+                            {skillsList.length ? (
                               <div className="mt-2 flex flex-wrap gap-2">
-                                {skills.map((skill) => (
+                                {skillsList.map((skill) => (
                                   <span
                                     key={skill}
                                     className="inline-flex items-center gap-2 rounded-full bg-[#F6F3F1] px-3 py-1 text-[10px] font-semibold uppercase text-[#666]"
@@ -540,7 +546,7 @@ export default function ProfilePage() {
                         { label: "Total Earned", value: totalEarned, unit: "sats" },
                         { label: "Job Success", value: `${jobSuccess}`, unit: "%" },
                         { label: "Jobs Completed", value: `${jobsCompleted}` },
-                        { label: "Hours Worked", value: hoursWorked.toLocaleString() },
+                        { label: "Hours Worked", value: (hoursWorked ?? 0).toLocaleString() },
                       ].map((stat, i) => (
                         <div
                           key={stat.label}
@@ -574,7 +580,7 @@ export default function ProfilePage() {
                       >
                         Professional Bio
                       </div>
-                      {bio.split("\n\n").map((para, i, arr) => (
+                      {bioText.split("\n\n").map((para, i, arr) => (
                         <p
                           key={i}
                           className={`text-[13px] leading-[1.75] text-[#555] ${
@@ -592,7 +598,7 @@ export default function ProfilePage() {
                         Core Expertise
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {skills.map((s) => (
+                        {skillsList.map((s) => (
                           <SkillTag key={s} label={s} />
                         ))}
                       </div>
@@ -609,11 +615,11 @@ export default function ProfilePage() {
                         Work History
                       </div>
                       <span className={` text-[11px] text-[#aaa]`}>
-                        Showing latest {workHistory.length} of {jobsCompleted}
+                        Showing latest {workHistoryList.length} of {jobsCompleted}
                       </span>
                     </div>
                     <div className="flex flex-col gap-3">
-                      {workHistory.map((job, i) => (
+                      {workHistoryList.map((job, i) => (
                         <div
                           key={i}
                           className="rounded-[10px] border border-[#EAE7E2] bg-white px-4 py-4 transition-shadow hover:shadow-[0_4px_16px_rgba(0,0,0,0.07)]"
@@ -651,7 +657,7 @@ export default function ProfilePage() {
                       Portfolio
                     </div>
                     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                      {portfolioItems.map((item) => (
+                      {portfolioItemsList.map((item) => (
                         <div
                           key={item.id}
                           className={[
@@ -789,7 +795,7 @@ export default function ProfilePage() {
 
                  
 
-                  <LedgerPerformance data={performanceData} />
+                  <LedgerPerformance data={performanceDataList} />
                 </div>
               </div>
             </div>
