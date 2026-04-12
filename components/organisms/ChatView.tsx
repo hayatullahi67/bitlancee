@@ -33,9 +33,17 @@ interface ChatViewProps {
   message: Message;
   chatMessages: ChatMessageType[];
   onBack: () => void;
+  onSendMessage?: (text: string) => void | Promise<void>;
+  canSend?: boolean;
 }
 
-export default function ChatView({ message, chatMessages, onBack }: ChatViewProps) {
+export default function ChatView({
+  message,
+  chatMessages,
+  onBack,
+  onSendMessage,
+  canSend = true,
+}: ChatViewProps) {
   const [newMessage, setNewMessage] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -48,9 +56,14 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
   }, [chatMessages]);
 
   const handleSendMessage = () => {
+    if (!canSend) return;
     if (newMessage.trim()) {
-      // In a real app, this would send the message to the backend
-      console.log('Sending message:', newMessage);
+      if (onSendMessage) {
+        onSendMessage(newMessage.trim());
+      } else {
+        // In a real app, this would send the message to the backend
+        console.log('Sending message:', newMessage);
+      }
       setNewMessage('');
     }
   };
@@ -96,13 +109,14 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
               placeholder="Type your message here..."
               className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-[#F7F6F3] border border-[#ece7df] rounded-full text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/20 resize-none min-h-[36px] sm:min-h-[44px] max-h-32"
               rows={1}
+              disabled={!canSend}
             />
           </div>
 
           {/* Send button */}
           <Button
             onClick={handleSendMessage}
-            disabled={!newMessage.trim()}
+            disabled={!newMessage.trim() || !canSend}
             className="p-2.5 sm:p-3 bg-[#CC7000] hover:bg-[#A85C00] text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
           >
             <Send className="w-4 h-4" />
@@ -111,9 +125,11 @@ export default function ChatView({ message, chatMessages, onBack }: ChatViewProp
 
         {/* Typing indicator - optional */}
         <div className="mt-1 sm:mt-2 text-[11px] sm:text-xs text-gray-400 min-h-[16px] sm:min-h-[18px]">
-          {message.sender.isOnline && (
+          {!canSend ? (
+            <span>Messaging is locked until the client initiates or accepts the proposal.</span>
+          ) : message.sender.isOnline ? (
             <span>{message.sender.name} is online</span>
-          )}
+          ) : null}
         </div>
       </div>
 

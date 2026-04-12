@@ -1,6 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import FreelancerSidebar from "@/components/molecules/FreelancerSidebar";
+import Button from "@/components/atoms/Button";
+import { firebaseAuth, firebaseDb } from "@/lib/firebase";
+import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 
 interface WorkHistory {
   title: string;
@@ -18,6 +22,9 @@ interface PortfolioItem {
 }
 
 interface FreelancerProfileProps {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
   name?: string;
   title?: string;
   location?: string;
@@ -39,6 +46,53 @@ interface FreelancerProfileProps {
   portfolioItems?: PortfolioItem[];
   performanceData?: number[];
 }
+
+const DEFAULT_PROFILE: FreelancerProfileProps = {
+  firstName: "Satoshi",
+  lastName: "Nakamoto",
+  email: "satoshi@bitlance.com",
+  name: "Satoshi Nakamoto",
+  title: "Senior Rust & Lightning Engineer",
+  location: "Cyberspace / Tokyo",
+  memberSince: "2009",
+  avatarUrl: undefined,
+  verified: true,
+  hourlyRate: "150,000",
+  currency: "sats/hr",
+  totalEarned: "2,000,048",
+  jobSuccess: 100,
+  jobsCompleted: 42,
+  hoursWorked: 1840,
+  bio: `Specializing in the intersection of high-performance systems and decentralized finance. My expertise lies in building mission-critical infrastructure for the Bitcoin ecosystem using Rust and the Lightning Network protocol.\n\nI have contributed to major open-source Bitcoin implementations and designed custom L2 solutions for institutional-grade payments. I focus on code immutability, cryptographic security, and low-latency execution.`,
+  skills: ["Rust", "Lightning Network", "Cryptography", "LND", "Bitcoin Core", "WASM", "Zero Knowledge"],
+  responseTime: "Under 4 hours",
+  availability: "30 hrs/week",
+  lastActive: "12 mins ago",
+  workHistory: [
+    {
+      title: "LDK Integration for Global Fintech",
+      amount: "500,000 sats",
+      status: "COMPLETED",
+      rating: 5,
+      review:
+        "Absolute professional. Satoshi delivered the rust-lightning integration ahead of schedule with zero security vulnerabilities during audit.",
+      period: "Oct 2023 - Jan 2024",
+    },
+    {
+      title: "Custom Lightning Node Dashboard",
+      amount: "1,200,000 sats",
+      status: "COMPLETED",
+      rating: 5,
+      review: "Highest quality engineering. The UI is clean and the backend handling of sats flows is flawless.",
+      period: "Aug 2023 - Sep 2023",
+    },
+  ],
+  portfolioItems: [
+    { id: 1, label: "Node Graph", bgClass: "bg-[#0d0d0d]" },
+    { id: 2, label: "Trading Dashboard", bgClass: "bg-[#0a0a1a]" },
+  ],
+  performanceData: [30, 45, 55, 40, 60, 70, 90, 75, 85, 95],
+};
 
 
 
@@ -140,49 +194,101 @@ function SkillTag({ label }: { label: string }) {
   );
 }
 
-export default function ProfilePage({
-  name = "Satoshi Nakamoto",
-  title = "Senior Rust & Lightning Engineer",
-  location = "Cyberspace / Tokyo",
-  memberSince = "2009",
-  avatarUrl,
-  verified = true,
-  hourlyRate = "150,000",
-  currency = "sats/hr",
-  totalEarned = "2,000,048",
-  jobSuccess = 100,
-  jobsCompleted = 42,
-  hoursWorked = 1840,
-  bio = `Specializing in the intersection of high-performance systems and decentralized finance. My expertise lies in building mission-critical infrastructure for the Bitcoin ecosystem using Rust and the Lightning Network protocol.\n\nI have contributed to major open-source Bitcoin implementations and designed custom L2 solutions for institutional-grade payments. I focus on code immutability, cryptographic security, and low-latency execution.`,
-  skills = ["Rust", "Lightning Network", "Cryptography", "LND", "Bitcoin Core", "WASM", "Zero Knowledge"],
-  responseTime = "Under 4 hours",
-  availability = "30 hrs/week",
-  lastActive = "12 mins ago",
-  workHistory = [
-    {
-      title: "LDK Integration for Global Fintech",
-      amount: "500,000 sats",
-      status: "COMPLETED",
-      rating: 5,
-      review:
-        "Absolute professional. Satoshi delivered the rust-lightning integration ahead of schedule with zero security vulnerabilities during audit.",
-      period: "Oct 2023 - Jan 2024",
-    },
-    {
-      title: "Custom Lightning Node Dashboard",
-      amount: "1,200,000 sats",
-      status: "COMPLETED",
-      rating: 5,
-      review: "Highest quality engineering. The UI is clean and the backend handling of sats flows is flawless.",
-      period: "Aug 2023 - Sep 2023",
-    },
-  ],
-  portfolioItems = [
-    { id: 1, label: "Node Graph", bgClass: "bg-[#0d0d0d]" },
-    { id: 2, label: "Trading Dashboard", bgClass: "bg-[#0a0a1a]" },
-  ],
-  performanceData = [30, 45, 55, 40, 60, 70, 90, 75, 85, 95],
-}: FreelancerProfileProps) {
+export default function ProfilePage() {
+  const [profile, setProfile] = useState<FreelancerProfileProps>(DEFAULT_PROFILE);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [skillInput, setSkillInput] = useState("");
+
+  const {
+    firstName,
+    lastName,
+    email,
+    name,
+    title,
+    location,
+    memberSince,
+    avatarUrl,
+    verified,
+    hourlyRate,
+    currency,
+    totalEarned,
+    jobSuccess,
+    jobsCompleted,
+    hoursWorked,
+    bio,
+    skills,
+    responseTime,
+    availability,
+    lastActive,
+    workHistory,
+    portfolioItems,
+    performanceData,
+  } = profile;
+
+  useEffect(() => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", user.uid));
+        const freelancerSnap = await getDoc(doc(firebaseDb, "freelancers", user.uid));
+        const allData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+        const freeData = freelancerSnap.exists() ? (freelancerSnap.data() as any) : {};
+        const fName = allData.firstName ?? DEFAULT_PROFILE.firstName ?? "";
+        const lName = allData.lastName ?? DEFAULT_PROFILE.lastName ?? "";
+        const fallbackName = `${fName} ${lName}`.trim();
+        const fullName = allData.fullName ?? (fallbackName || DEFAULT_PROFILE.name);
+
+        setProfile((prev) => ({
+          ...prev,
+          firstName: fName,
+          lastName: lName,
+          email: allData.email ?? user.email ?? prev.email,
+          name: fullName,
+          title: freeData.title ?? prev.title,
+          location: freeData.location ?? prev.location,
+          bio: freeData.bio ?? prev.bio,
+          skills: Array.isArray(freeData.skills) ? freeData.skills : prev.skills,
+          hourlyRate: freeData.hourlyRate ?? prev.hourlyRate,
+          availability: freeData.availability ?? prev.availability,
+          responseTime: freeData.responseTime ?? prev.responseTime,
+        }));
+      } catch {
+        // keep defaults
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleSave = async () => {
+    const user = firebaseAuth.currentUser;
+    if (!user) return;
+    if (!firstName?.trim() || !lastName?.trim()) return;
+    setIsSaving(true);
+    try {
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+      await updateDoc(doc(firebaseDb, "all_users", user.uid), {
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        fullName,
+        updatedAt: serverTimestamp(),
+      });
+      await updateDoc(doc(firebaseDb, "freelancers", user.uid), {
+        title: title ?? "",
+        location: location ?? "",
+        bio: bio ?? "",
+        skills: skills ?? [],
+        hourlyRate: hourlyRate ?? "",
+        availability: availability ?? "",
+        responseTime: responseTime ?? "",
+        updatedAt: serverTimestamp(),
+      });
+      setProfile((prev) => ({ ...prev, name: fullName }));
+      setIsEditing(false);
+    } finally {
+      setIsSaving(false);
+    }
+  };
   return (
     <div className={`min-h-screen bg-[#F7F6F3] `}>
       <div className="flex">
@@ -191,8 +297,193 @@ export default function ProfilePage({
         <div className="flex-1 lg:ml-0">
           <div className="min-h-screen overflow-y-auto pt-4 md:pt-0">
             <div className="w-full px-4 max-md:pt-10 sm:px-6 lg:px-2 md:pt-5 ">
+              <div className="w-full flex justify-end gap-2 px-5 pb-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full"
+                  onClick={() => setIsEditing((prev) => !prev)}
+                >
+                  {isEditing ? "Cancel" : "Edit Profile"}
+                </Button>
+                {isEditing ? (
+                  <Button
+                    size="sm"
+                    className="rounded-full"
+                    onClick={handleSave}
+                    disabled={isSaving}
+                  >
+                    {isSaving ? "Saving..." : "Save Changes"}
+                  </Button>
+                ) : null}
+              </div>
               <div className=" w-full flex flex-col items-start gap-6   p-5   lg:flex-row">
                 <div className="flex w-full min-w-0 flex-1 flex-col gap-6">
+                  {isEditing ? (
+                    <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4">
+                      <div className="mb-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
+                        Edit Profile
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            First Name
+                          </label>
+                          <input
+                            value={firstName ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, firstName: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Last Name
+                          </label>
+                          <input
+                            value={lastName ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, lastName: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Professional Title
+                          </label>
+                          <input
+                            value={title ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, title: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Location
+                          </label>
+                          <input
+                            value={location ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, location: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Hourly Rate
+                          </label>
+                          <input
+                            value={hourlyRate ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, hourlyRate: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Availability
+                          </label>
+                          <input
+                            value={availability ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, availability: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Response Time
+                          </label>
+                          <input
+                            value={responseTime ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, responseTime: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Bio
+                          </label>
+                          <textarea
+                            rows={4}
+                            value={bio ?? ""}
+                            onChange={(e) =>
+                              setProfile((prev) => ({ ...prev, bio: e.target.value }))
+                            }
+                            className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-2 md:col-span-2">
+                          <label className="text-[10px] uppercase tracking-[0.12em] text-[#9e9690]">
+                            Skills
+                          </label>
+                          <div className="rounded-lg border border-[#EAE7E2] px-3 py-2">
+                            <input
+                              value={skillInput}
+                              onChange={(e) => setSkillInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === ",") {
+                                  e.preventDefault();
+                                  const cleaned = skillInput.trim().replace(/,$/, "");
+                                  if (!cleaned) return;
+                                  setProfile((prev) => ({
+                                    ...prev,
+                                    skills: prev.skills?.includes(cleaned)
+                                      ? prev.skills
+                                      : [...(prev.skills ?? []), cleaned],
+                                  }));
+                                  setSkillInput("");
+                                }
+                                if (e.key === "Backspace" && !skillInput && (skills?.length ?? 0) > 0) {
+                                  setProfile((prev) => ({
+                                    ...prev,
+                                    skills: (prev.skills ?? []).slice(0, -1),
+                                  }));
+                                }
+                              }}
+                              className="w-full bg-transparent text-[12px] focus:outline-none"
+                              placeholder="Type a skill and press Enter"
+                            />
+                            {skills?.length ? (
+                              <div className="mt-2 flex flex-wrap gap-2">
+                                {skills.map((skill) => (
+                                  <span
+                                    key={skill}
+                                    className="inline-flex items-center gap-2 rounded-full bg-[#F6F3F1] px-3 py-1 text-[10px] font-semibold uppercase text-[#666]"
+                                  >
+                                    {skill}
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setProfile((prev) => ({
+                                          ...prev,
+                                          skills: (prev.skills ?? []).filter((s) => s !== skill),
+                                        }))
+                                      }
+                                      className="text-[#9e9690] hover:text-[#1a1a1a]"
+                                      aria-label={`Remove ${skill}`}
+                                    >
+                                      ×
+                                    </button>
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                          <p className="text-[10px] text-[#9e9690]">Press Enter or comma to add a skill.</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
                   <div>
                     <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-start">
                       <div className="flex h-20 w-20 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl border-2 border-[#EAE7E2] bg-gradient-to-br from-[#2d2d2d] to-[#1a1a1a]">

@@ -1,7 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { firebaseAuth, firebaseDb } from '@/lib/firebase';
 
 interface SidebarItem {
   label: string;
@@ -33,6 +37,28 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
         <rect x="3" y="3" width="18" height="18" rx="2" />
         <path d="M8 9h8M8 13h8M8 17h5" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Proposals',
+    href: '/freelancer/dashboard/proposals',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <path d="M7 8h10M7 12h10M7 16h6" />
+      </svg>
+    ),
+  },
+  {
+    label: 'Contracts',
+    href: '/freelancer/dashboard/contracts',
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H8a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <line x1="9" y1="13" x2="15" y2="13" />
+        <line x1="9" y1="17" x2="13" y2="17" />
       </svg>
     ),
   },
@@ -69,6 +95,43 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
 
 export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: FreelancerSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [displayName, setDisplayName] = useState('Freelancer');
+  const router = useRouter();
+
+  useEffect(() => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const snap = await getDoc(doc(firebaseDb, 'all_users', user.uid));
+        const data = snap.exists() ? (snap.data() as any) : null;
+        const fullName = data?.fullName ?? user.displayName ?? 'Freelancer';
+        setDisplayName(fullName);
+      } catch {
+        setDisplayName(user.displayName ?? 'Freelancer');
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const initials = displayName
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'FR';
+
+  const handleLogout = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    try {
+      await signOut(firebaseAuth);
+      setIsOpen(false);
+      router.push('/login');
+    } catch {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <>
@@ -117,11 +180,11 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = 'none';
-                target.parentElement!.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8C4F00" strokeWidth="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
+                target.parentElement!.innerHTML = `<div style="font-weight:700;color:#8C4F00;">${initials}</div>`;
               }}
             />
           </div>
-          <h3 className="text-base font-black text-[#1a1a1a] leading-tight">Satoshi Nakamoto</h3>
+          <h3 className="text-base font-black text-[#1a1a1a] leading-tight">{displayName}</h3>
           <p className="text-[11px] font-black text-orange-600 uppercase tracking-widest">Top Rated</p>
         </Link>
 
@@ -165,11 +228,15 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
             Help Center
           </Link>
 
-          <button className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a] transition-all w-full text-left">
+          <button
+            onClick={handleLogout}
+            disabled={isSigningOut}
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a] transition-all w-full text-left disabled:opacity-70 disabled:cursor-not-allowed"
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#9e9690]">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
             </svg>
-            Logout
+            {isSigningOut ? 'Logging out...' : 'Logout'}
           </button>
         </div>
 

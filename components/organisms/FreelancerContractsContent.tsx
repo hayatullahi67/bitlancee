@@ -3,8 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/atoms/Button";
-import DashboardMetricCard from "@/components/molecules/DashboardMetricCard";
-import ClientContractCard from "@/components/molecules/ClientContractCard";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
@@ -14,14 +12,14 @@ type ContractStatus = "Active" | "Review" | "Completed";
 type Contract = {
   id: string;
   title: string;
-  freelancer: string;
-  freelancerId?: string;
+  clientName: string;
   clientId?: string;
+  freelancerId?: string;
   jobId?: string;
-  progress: number;
-  nextMilestone: string;
   status: ContractStatus;
   budget: string;
+  progress: number;
+  nextMilestone: string;
   startDate: string;
   dueDate: string;
   description: string;
@@ -37,12 +35,7 @@ const formatDate = (value: any) => {
 const formatSats = (value: string) =>
   value.toLowerCase().includes("sats") ? value : `${value} sats`;
 
-const parseSats = (value: string) => {
-  const cleaned = value.replace(/[^0-9.]/g, "");
-  return cleaned ? Number(cleaned) : 0;
-};
-
-export default function ClientContractsContent() {
+export default function FreelancerContractsContent() {
   const router = useRouter();
   const [view, setView] = useState<"active" | "ongoing">("active");
   const [selectedId, setSelectedId] = useState("");
@@ -67,7 +60,7 @@ export default function ClientContractsContent() {
       setErrorMessage("");
       const contractsQuery = query(
         collection(firebaseDb, "contracts"),
-        where("clientId", "==", user.uid)
+        where("freelancerId", "==", user.uid)
       );
       unsubscribeContracts = onSnapshot(
         contractsQuery,
@@ -77,14 +70,14 @@ export default function ClientContractsContent() {
             return {
               id: docSnap.id,
               title: data.title ?? "Contract",
-              freelancer: data.freelancerName ?? "Freelancer",
-              freelancerId: data.freelancerId ?? "",
+              clientName: data.clientName ?? "Client",
               clientId: data.clientId ?? "",
+              freelancerId: data.freelancerId ?? "",
               jobId: data.jobId ?? "",
-              progress: typeof data.progress === "number" ? data.progress : 0,
-              nextMilestone: data.nextMilestone ?? "—",
               status: (data.status as ContractStatus) ?? "Active",
               budget: formatSats(data.budget ?? "0"),
+              progress: typeof data.progress === "number" ? data.progress : 0,
+              nextMilestone: data.nextMilestone ?? "—",
               startDate: formatDate(data.startDate),
               dueDate: formatDate(data.dueDate),
               description: data.description ?? "—",
@@ -119,9 +112,6 @@ export default function ClientContractsContent() {
   const selectedContract =
     contracts.find((c) => c.id === selectedId) ?? visibleContracts[0];
 
-  const totalSpend = contracts.reduce((acc, c) => acc + parseSats(c.budget), 0);
-  const inReviewCount = contracts.filter((c) => c.status === "Review").length;
-
   return (
     <section className="w-full">
       <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-6 shadow-[0_8px_22px_rgba(0,0,0,0.05)]">
@@ -131,10 +121,10 @@ export default function ClientContractsContent() {
               Contracts
             </div>
             <h1 className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[#1a1a1a]">
-              Active engagements
+              Your engagements
             </h1>
             <p className="mt-2 text-[12px] leading-[1.7] text-[#6b6762]">
-              Monitor delivery progress, approve milestones, and keep timelines tight.
+              Track milestones, deliverables, and active client work.
             </p>
           </div>
           <Button size="sm" variant="outline" className="rounded-full">
@@ -143,96 +133,79 @@ export default function ClientContractsContent() {
         </div>
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <DashboardMetricCard
-          label="Active Contracts"
-          value={`${activeContracts.length}`}
-          change="Live"
-          tone="up"
-        />
-        <DashboardMetricCard
-          label="In Review"
-          value={`${inReviewCount}`}
-          change="Needs approval"
-          tone="neutral"
-        />
-        <DashboardMetricCard
-          label="Milestones Due"
-          value="0"
-          change="Next 7 days"
-          tone="down"
-        />
-        <DashboardMetricCard
-          label="Total Spend"
-          value={`${totalSpend.toLocaleString()} sats`}
-          change="All time"
-          tone="up"
-        />
-      </div>
-
-      <div className="mt-8">
-        <div className="rounded-[12px] border border-[#EAE7E2] bg-[#F9F6F2] p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
-                Contracts
-              </div>
-              <div className="text-[12px] text-[#6b6762]">Switch between active and ongoing work.</div>
+      <div className="mt-6 rounded-[12px] border border-[#EAE7E2] bg-[#F9F6F2] p-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
+              Contracts
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setView("active")}
-                className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  view === "active"
-                    ? "bg-white text-[#1a1a1a] shadow-sm"
-                    : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
-                }`}
-              >
-                Active
-              </button>
-              <button
-                type="button"
-                onClick={() => setView("ongoing")}
-                className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  view === "ongoing"
-                    ? "bg-white text-[#1a1a1a] shadow-sm"
-                    : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
-                }`}
-              >
-                Ongoing
-              </button>
+            <div className="text-[12px] text-[#6b6762]">Switch between active and ongoing work.</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setView("active")}
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                view === "active"
+                  ? "bg-white text-[#1a1a1a] shadow-sm"
+                  : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
+              }`}
+            >
+              Active
+            </button>
+            <button
+              type="button"
+              onClick={() => setView("ongoing")}
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                view === "ongoing"
+                  ? "bg-white text-[#1a1a1a] shadow-sm"
+                  : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
+              }`}
+            >
+              Ongoing
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 gap-4">
+          {loading ? (
+            <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
+              Loading contracts...
             </div>
-          </div>
-          <div className="mt-4 grid grid-cols-1 gap-4">
-            {loading ? (
-              <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
-                Loading contracts...
-              </div>
-            ) : errorMessage ? (
-              <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FFF6F2] p-4 text-[12px] text-[#8C4F00]">
-                {errorMessage}
-              </div>
-            ) : visibleContracts.length ? (
-              visibleContracts.map((contract) => (
-                <button
-                  key={contract.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedId(contract.id);
-                    setIsModalOpen(true);
-                  }}
-                  className="text-left"
-                >
-                  <ClientContractCard {...contract} />
-                </button>
-              ))
-            ) : (
-              <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
-                No contracts in this view yet.
-              </div>
-            )}
-          </div>
+          ) : errorMessage ? (
+            <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FFF6F2] p-4 text-[12px] text-[#8C4F00]">
+              {errorMessage}
+            </div>
+          ) : visibleContracts.length ? (
+            visibleContracts.map((contract) => (
+              <button
+                key={contract.id}
+                type="button"
+                onClick={() => {
+                  setSelectedId(contract.id);
+                  setIsModalOpen(true);
+                }}
+                className="text-left rounded-[12px] border border-[#EAE7E2] bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[14px] font-semibold text-[#1a1a1a]">{contract.title}</div>
+                    <div className="text-[12px] text-[#9e9690]">Client: {contract.clientName}</div>
+                    <div className="mt-2 text-[11px] text-[#6b6762]">{contract.nextMilestone}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[12px] font-semibold text-[#8C4F00]">{contract.budget}</div>
+                    <div className="mt-2 text-[10px] uppercase tracking-[0.1em] text-[#6b6762]">
+                      {contract.status}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            ))
+          ) : (
+            <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
+              No contracts in this view yet.
+            </div>
+          )}
         </div>
       </div>
 
@@ -263,7 +236,7 @@ export default function ClientContractsContent() {
                   {selectedContract.title}
                 </div>
                 <div className="text-[12px] text-[#9e9690]">
-                  Freelancer: {selectedContract.freelancer} • {selectedContract.status}
+                  Client: {selectedContract.clientName} • {selectedContract.status}
                 </div>
               </div>
             </div>
@@ -301,26 +274,38 @@ export default function ClientContractsContent() {
             </div>
 
             <div className="mt-5 flex flex-wrap gap-2">
-              <Button size="sm" variant="outline" className="rounded-full">
-                View Contract
-              </Button>
               <Button
                 size="sm"
                 variant="outline"
                 className="rounded-full"
                 onClick={async () => {
                   if (!selectedContract?.jobId || !selectedContract?.freelancerId) return;
-                  const clientId = firebaseAuth.currentUser?.uid ?? selectedContract.clientId ?? "";
+                  const clientId = selectedContract.clientId ?? "";
                   if (!clientId) return;
-                  let clientName = "Client";
+                  const freelancerId =
+                    firebaseAuth.currentUser?.uid ?? selectedContract.freelancerId ?? "";
+                  if (!freelancerId) return;
+                  let freelancerName = "Freelancer";
+                  let clientName = selectedContract.clientName ?? "Client";
                   try {
-                    const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
+                    const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", freelancerId));
                     if (allUsersSnap.exists()) {
                       const d = allUsersSnap.data() as any;
-                      clientName = d.fullName ?? d.name ?? d.email ?? "Client";
+                      freelancerName = d.fullName ?? d.name ?? d.email ?? "Freelancer";
                     }
                   } catch {
-                    clientName = "Client";
+                    freelancerName = "Freelancer";
+                  }
+                  if (!clientName || clientName === "Client") {
+                    try {
+                      const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
+                      if (allUsersSnap.exists()) {
+                        const d = allUsersSnap.data() as any;
+                        clientName = d.fullName ?? d.name ?? d.email ?? "Client";
+                      }
+                    } catch {
+                      clientName = "Client";
+                    }
                   }
                   const conversationId = createConversationId(
                     selectedContract.jobId,
@@ -335,7 +320,7 @@ export default function ClientContractsContent() {
                       clientId,
                       clientName,
                       freelancerId: selectedContract.freelancerId,
-                      freelancerName: selectedContract.freelancer,
+                      freelancerName,
                       createdBy: "system",
                       canFreelancerMessage: true,
                       unread: {
@@ -347,13 +332,10 @@ export default function ClientContractsContent() {
                     },
                     { merge: true }
                   );
-                  router.push(`/client/dashboard/messages?chat=${conversationId}`);
+                  router.push(`/freelancer/dashboard/messages?chat=${conversationId}`);
                 }}
               >
-                Message Freelancer
-              </Button>
-              <Button size="sm" className="rounded-full">
-                Approve Milestone
+                Message Client
               </Button>
             </div>
           </div>

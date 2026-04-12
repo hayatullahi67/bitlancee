@@ -1,158 +1,234 @@
  "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Button from "@/components/atoms/Button";
 import ClientJobPostCard from "@/components/molecules/ClientJobPostCard";
 import ClientProposalCard from "@/components/molecules/ClientProposalCard";
+import { firebaseAuth, firebaseDb } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import {
+  addDoc,
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  query,
+  serverTimestamp,
+  setDoc,
+  updateDoc,
+  writeBatch,
+  arrayUnion,
+  where,
+} from "firebase/firestore";
 
-const JOB_POSTS = [
-  {
-    id: "job-1",
-    title: "Lightning Node Observability Suite",
-    status: "Open" as const,
-    budget: "450,000 sats",
-    proposals: 18,
-    tags: ["Lightning", "Rust", "Monitoring"],
-  },
-  {
-    id: "job-2",
-    title: "Bitcoin Treasury Reporting Dashboard",
-    status: "In Review" as const,
-    budget: "320,000 sats",
-    proposals: 9,
-    tags: ["Analytics", "Accounting", "React"],
-  },
-  {
-    id: "job-3",
-    title: "Merchant Payment Routing Revamp",
-    status: "Paused" as const,
-    budget: "280,000 sats",
-    proposals: 5,
-    tags: ["Payments", "APIs", "Node"],
-  },
-  {
-    id: "job-4",
-    title: "Multi-sig Vault Monitoring",
-    status: "Open" as const,
-    budget: "390,000 sats",
-    proposals: 12,
-    tags: ["Security", "Ops", "Alerts"],
-  },
-  {
-    id: "job-5",
-    title: "Lightning Liquidity Strategy",
-    status: "Open" as const,
-    budget: "210,000 sats",
-    proposals: 7,
-    tags: ["Liquidity", "Strategy", "Research"],
-  },
-  {
-    id: "job-6",
-    title: "Merchant API Documentation Sprint",
-    status: "In Review" as const,
-    budget: "160,000 sats",
-    proposals: 4,
-    tags: ["Docs", "API", "DX"],
-  },
+type JobStatus = "Open" | "In Review" | "Paused";
+
+type JobPost = {
+  id: string;
+  uuid: string;
+  title: string;
+  description?: string;
+  status: JobStatus;
+  budget: string;
+  proposals: number;
+  tags: string[];
+  urgent?: boolean;
+  jobType?: string;
+  category?: string;
+};
+
+const JOB_CATEGORIES = [
+  "Development",
+  "Design & Creative",
+  "Writing",
+  "Marketing",
+  "Sales",
+  "Customer Support",
+  "Finance & Accounting",
+  "Data & Analytics",
+  "Product Management",
+  "DevOps & Infrastructure",
+  "Security",
+  "QA & Testing",
+  "Blockchain & Crypto",
+  "Project Management",
 ];
 
-const PROPOSALS: Record<string, Array<{ id: string; name: string; title: string; rate: string; cover: string; rating: number; availability: string }>> =
-  {
-    "job-1": [
-      {
-        id: "p-1",
-        name: "Satoshi Nakamoto",
-        title: "Senior Rust & Lightning Engineer",
-        rate: "150,000 sats/hr",
-        cover:
-          "I’ve built high-availability Lightning monitoring stacks for exchanges. I can ship the observability suite with real-time alerts and metrics dashboards.",
-        rating: 5,
-        availability: "30 hrs/week",
-      },
-      {
-        id: "p-2",
-        name: "Nadia K.",
-        title: "Systems Architect",
-        rate: "120,000 sats/hr",
-        cover:
-          "I’ll deliver a metrics pipeline with distributed tracing and an incident response playbook for your ops team.",
-        rating: 4.8,
-        availability: "25 hrs/week",
-      },
-    ],
-    "job-2": [
-      {
-        id: "p-3",
-        name: "Solomon P.",
-        title: "Product Analytics Lead",
-        rate: "95,000 sats/hr",
-        cover:
-          "I can build a treasury dashboard with clear reporting, data exports, and executive summaries.",
-        rating: 4.9,
-        availability: "20 hrs/week",
-      },
-    ],
-    "job-3": [
-      {
-        id: "p-4",
-        name: "Amina T.",
-        title: "Payments Engineer",
-        rate: "110,000 sats/hr",
-        cover:
-          "I’ll refactor routing logic and improve merchant onboarding flows while keeping latency low.",
-        rating: 4.7,
-        availability: "15 hrs/week",
-      },
-    ],
-    "job-4": [
-      {
-        id: "p-5",
-        name: "Eli J.",
-        title: "Infrastructure Engineer",
-        rate: "105,000 sats/hr",
-        cover:
-          "I can build a monitoring system with alerting for multi-sig vault anomalies and balance drift.",
-        rating: 4.6,
-        availability: "20 hrs/week",
-      },
-    ],
-    "job-5": [
-      {
-        id: "p-6",
-        name: "Priya V.",
-        title: "Lightning Liquidity Strategist",
-        rate: "98,000 sats/hr",
-        cover:
-          "I’ll develop a data-driven liquidity plan and rebalance strategy to improve routing revenue.",
-        rating: 4.8,
-        availability: "10 hrs/week",
-      },
-    ],
-    "job-6": [
-      {
-        id: "p-7",
-        name: "Marcus B.",
-        title: "Technical Writer",
-        rate: "70,000 sats/hr",
-        cover:
-          "I’ll produce clear, developer-first API docs with examples and onboarding guides.",
-        rating: 4.9,
-        availability: "15 hrs/week",
-      },
-    ],
-  };
-
 export default function ClientJobPostsContent() {
-  const [selectedJobId, setSelectedJobId] = useState(JOB_POSTS[0]?.id ?? "");
+  const router = useRouter();
+  const [selectedJobId, setSelectedJobId] = useState("");
+  const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState("");
   const [selectedProposals, setSelectedProposals] = useState<Record<string, boolean>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"active" | "review" | "paused">("active");
+  const [activeTab, setActiveTab] = useState<"all" | "active" | "review" | "paused">("all");
   const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [postTitle, setPostTitle] = useState("");
+  const [postBudget, setPostBudget] = useState("");
+  const [postType, setPostType] = useState("Fixed Price");
+  const [postDescription, setPostDescription] = useState("");
+  const [postUrgent, setPostUrgent] = useState(false);
+  const [skillInput, setSkillInput] = useState("");
+  const [postSkills, setPostSkills] = useState<string[]>([]);
+  const [postCategory, setPostCategory] = useState("");
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [isEditingJob, setIsEditingJob] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editTitle, setEditTitle] = useState("");
+  const [editBudget, setEditBudget] = useState("");
+  const [editType, setEditType] = useState("Fixed Price");
+  const [editDescription, setEditDescription] = useState("");
+  const [editUrgent, setEditUrgent] = useState(false);
+  const [editSkills, setEditSkills] = useState<string[]>([]);
+  const [editSkillInput, setEditSkillInput] = useState("");
+  const [editStatus, setEditStatus] = useState<JobStatus>("Open");
+  const [editCategory, setEditCategory] = useState("");
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editJobId, setEditJobId] = useState<string | null>(null);
 
-  const proposals = useMemo(() => PROPOSALS[selectedJobId] ?? [], [selectedJobId]);
+  useEffect(() => {
+    setSelectedProposals({});
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    let unsubscribeJobs: (() => void) | undefined;
+    const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (user) => {
+      if (!user) {
+        if (unsubscribeJobs) unsubscribeJobs();
+        setJobs([]);
+        setSelectedJobId("");
+        setJobsLoading(false);
+        setJobsError("Please log in to view your job posts.");
+        return;
+      }
+
+      setJobsLoading(true);
+      setJobsError("");
+
+      const jobsQuery = query(
+        collection(firebaseDb, "jobs"),
+        where("clientId", "==", user.uid)
+      );
+
+      unsubscribeJobs = onSnapshot(
+        jobsQuery,
+        (snapshot) => {
+          const items: JobPost[] = snapshot.docs.map((docSnap) => {
+            const data = docSnap.data() as any;
+            return {
+              id: docSnap.id,
+              uuid: data.uuid,
+              title: data.title ?? "",
+              description: data.description ?? "",
+              status: (data.status as JobStatus) ?? "Open",
+              budget: data.budget ?? "",
+              proposals: data.proposals ?? 0,
+              tags: Array.isArray(data.skills) ? data.skills : [],
+              urgent: !!data.urgent,
+              jobType: data.jobType ?? "",
+              category: data.category ?? "",
+            };
+          });
+          setJobs(items);
+          setJobsLoading(false);
+          if (!selectedJobId && items.length) {
+            setSelectedJobId(items[0].id);
+          }
+        },
+        () => {
+          setJobsLoading(false);
+          setJobsError("Unable to load job posts right now.");
+        }
+      );
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeJobs) unsubscribeJobs();
+    };
+  }, [selectedJobId]);
+
+  useEffect(() => {
+    if (!selectedJobId) {
+      setProposals([]);
+      return;
+    }
+    setProposalsLoading(true);
+    const proposalsQuery = query(
+      collection(firebaseDb, "proposals"),
+      where("jobId", "==", selectedJobId)
+    );
+    const unsubscribe = onSnapshot(
+      proposalsQuery,
+      (snapshot) => {
+        const items = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            freelancerId: data.freelancerId ?? "",
+            name: data.freelancerName ?? "Freelancer",
+            title: data.freelancerTitle ?? "Professional",
+            rate: data.rate ?? "—",
+            cover: data.cover ?? "",
+            rating: typeof data.rating === "number" ? data.rating : 5,
+            availability: data.availability ?? "Available",
+            status: data.status ?? "submitted",
+          };
+        });
+        setProposals(items);
+        setProposalsLoading(false);
+      },
+      () => {
+        setProposals([]);
+        setProposalsLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, [selectedJobId]);
+
+  const [proposals, setProposals] = useState<
+    Array<{
+      id: string;
+      freelancerId: string;
+      name: string;
+      title: string;
+      rate: string;
+      cover: string;
+      rating: number;
+      availability: string;
+      status?: string;
+    }>
+  >([]);
+  const [proposalsLoading, setProposalsLoading] = useState(false);
 
   const selectedCount = Object.values(selectedProposals).filter(Boolean).length;
-  const selectedJob = JOB_POSTS.find((job) => job.id === selectedJobId) ?? JOB_POSTS[0];
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? jobs[0];
+  const jobsToShow = jobs.filter((job) => {
+    if (activeTab === "all") return true;
+    if (activeTab === "active") return job.status === "Open";
+    if (activeTab === "review") return job.status === "In Review";
+    return job.status === "Paused";
+  });
+  const formatBudget = (value: string) =>
+    value.toLowerCase().includes("sats") ? value : `${value} sats`;
+
+  const editJob = jobs.find((job) => job.id === editJobId) ?? null;
+  const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
+
+  useEffect(() => {
+    if (!editJob) return;
+    setEditTitle(editJob.title ?? "");
+    setEditBudget(editJob.budget ?? "");
+    setEditType(editJob.jobType ?? "Fixed Price");
+    setEditDescription(editJob.description ?? "");
+    setEditUrgent(!!editJob.urgent);
+    setEditSkills(Array.isArray(editJob.tags) ? editJob.tags : []);
+    setEditSkillInput("");
+    setEditStatus(editJob.status ?? "Open");
+    setEditCategory(editJob.category ?? "");
+  }, [editJobId, editJob]);
 
   return (
     <section className="w-full">
@@ -184,6 +260,17 @@ export default function ClientJobPostsContent() {
             <div className="text-[12px] text-[#6b6762]">Switch between job states.</div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab("all")}
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                activeTab === "all"
+                  ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
+                  : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
+              }`}
+            >
+              All
+            </button>
             <button
               type="button"
               onClick={() => setActiveTab("active")}
@@ -221,21 +308,35 @@ export default function ClientJobPostsContent() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-          {JOB_POSTS.filter((job) => {
-            if (activeTab === "active") return job.status === "Open";
-            if (activeTab === "review") return job.status === "In Review";
-            return job.status === "Paused";
-          }).map((job) => (
-            <ClientJobPostCard
-              key={job.id}
-              {...job}
-              isSelected={job.id === selectedJobId}
-              onSelect={() => {
-                setSelectedJobId(job.id);
-                setIsModalOpen(true);
-              }}
-            />
-          ))}
+          {jobsLoading ? (
+            <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-6 text-[12px] text-[#6b6762]">
+              Loading job posts...
+            </div>
+          ) : jobsError ? (
+            <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FFF6F2] p-6 text-[12px] text-[#8C4F00]">
+              {jobsError}
+            </div>
+          ) : jobsToShow.length ? (
+            jobsToShow.map((job) => (
+              <ClientJobPostCard
+                key={job.id}
+                {...job}
+                isSelected={job.id === selectedJobId}
+                onSelect={() => {
+                  setSelectedJobId(job.id);
+                  setIsModalOpen(true);
+                }}
+                onEdit={() => {
+                  setEditJobId(job.id);
+                  setIsEditModalOpen(true);
+                }}
+              />
+            ))
+          ) : (
+            <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-6 text-[12px] text-[#6b6762]">
+              No job posts in this status yet.
+            </div>
+          )}
         </div>
       </div>
 
@@ -266,7 +367,7 @@ export default function ClientJobPostsContent() {
                   {selectedJob.title}
                 </div>
                 <div className="mt-1 text-[12px] text-[#9e9690]">
-                  {selectedJob.status} • {selectedJob.budget} • {selectedJob.proposals} proposals
+                  {selectedJob.status} • {formatBudget(selectedJob.budget)} • {selectedJob.proposals} proposals
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedJob.tags.map((tag) => (
@@ -275,8 +376,24 @@ export default function ClientJobPostsContent() {
                     </span>
                   ))}
                 </div>
+                {selectedJob.urgent ? (
+                  <div className="mt-3 inline-flex items-center rounded-full bg-[#FFF0E6] px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#B45309]">
+                    Urgent
+                  </div>
+                ) : null}
+                {selectedJob.jobType ? (
+                  <div className="mt-2 text-[11px] text-[#6b6762]">
+                    Type: {selectedJob.jobType}
+                  </div>
+                ) : null}
               </div>
             </div>
+
+            {selectedJob.description ? (
+              <div className="mt-4 rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-4 py-3 text-[12px] leading-[1.7] text-[#6b6762]">
+                {selectedJob.description}
+              </div>
+            ) : null}
 
             <div className="mt-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div className="text-[11px] text-[#6b6762]">
@@ -284,26 +401,367 @@ export default function ClientJobPostsContent() {
               </div>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-2">
                 <span className="text-[11px] text-[#9e9690]">{selectedCount} selected</span>
-                <Button size="sm" variant="outline" className="rounded-full w-full sm:w-auto">
-                  Compare
-                </Button>
+              </div>
+            </div>
+            <div className="mt-4 flex flex-col gap-3">
+              {proposalsLoading ? (
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4 text-[12px] text-[#6b6762]">
+                  Loading proposals...
+                </div>
+              ) : proposals.length ? (
+                proposals.map((proposal) => (
+                  <ClientProposalCard
+                    key={proposal.id}
+                    {...proposal}
+                    isSelected={!!selectedProposals[proposal.id]}
+                    onToggle={() =>
+                      setSelectedProposals((prev) => ({
+                        ...prev,
+                        [proposal.id]: !prev[proposal.id],
+                      }))
+                    }
+                    onMessage={async () => {
+                      if (!selectedJob?.id) return;
+                      const clientId = firebaseAuth.currentUser?.uid ?? "";
+                      if (!clientId) return;
+                      let clientName = "Client";
+                      try {
+                        const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
+                        if (allUsersSnap.exists()) {
+                          const d = allUsersSnap.data() as any;
+                          clientName = d.fullName ?? d.name ?? d.email ?? "Client";
+                        }
+                      } catch {
+                        clientName = "Client";
+                      }
+                      const conversationId = createConversationId(selectedJob.id, proposal.freelancerId);
+                      await setDoc(
+                        doc(firebaseDb, "conversations", conversationId),
+                        {
+                          jobId: selectedJob.id,
+                          jobTitle: selectedJob.title,
+                          proposalId: proposal.id,
+                          clientId,
+                          clientName,
+                          freelancerId: proposal.freelancerId,
+                          freelancerName: proposal.name,
+                          createdBy: "client",
+                          canFreelancerMessage: true,
+                          unread: {
+                            [clientId]: 0,
+                            [proposal.freelancerId]: 0,
+                          },
+                          updatedAt: serverTimestamp(),
+                          createdAt: serverTimestamp(),
+                        },
+                        { merge: true }
+                      );
+                      router.push(`/client/dashboard/messages?chat=${conversationId}`);
+                    }}
+                  />
+                ))
+              ) : (
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4 text-[12px] text-[#6b6762]">
+                  No proposals yet.
+                </div>
+              )}
+            </div>
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                size="sm"
+                className="rounded-full w-full sm:w-auto"
+                disabled={selectedCount === 0}
+                onClick={async () => {
+                  if (!selectedJob?.id) return;
+                  const selected = proposals.filter((p) => selectedProposals[p.id]);
+                  if (!selected.length) return;
+
+                  const batch = writeBatch(firebaseDb);
+                  const freelancerIds = selected.map((p) => p.freelancerId);
+                  const freelancerNames = selected.map((p) => p.name);
+                  const clientId = firebaseAuth.currentUser?.uid ?? "";
+                  let clientName = "Client";
+                  if (clientId) {
+                    try {
+                      const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
+                      if (allUsersSnap.exists()) {
+                        const d = allUsersSnap.data() as any;
+                        clientName = d.fullName ?? d.name ?? d.email ?? "Client";
+                      }
+                    } catch {
+                      clientName = "Client";
+                    }
+                  }
+                  selected.forEach((proposal) => {
+                    const proposalRef = doc(firebaseDb, "proposals", proposal.id);
+                    batch.update(proposalRef, { status: "accepted", updatedAt: serverTimestamp() });
+
+                    const contractId = `${selectedJob.id}_${proposal.freelancerId}`;
+                    const contractRef = doc(firebaseDb, "contracts", contractId);
+                    batch.set(
+                      contractRef,
+                      {
+                        jobId: selectedJob.id,
+                        clientId: firebaseAuth.currentUser?.uid ?? "",
+                        freelancerId: proposal.freelancerId,
+                        freelancerName: proposal.name,
+                        title: selectedJob.title,
+                        status: "Active",
+                        budget: selectedJob.budget,
+                        progress: 0,
+                        nextMilestone: "Kickoff & onboarding",
+                        startDate: serverTimestamp(),
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                      },
+                      { merge: true }
+                    );
+
+                    const conversationId = createConversationId(selectedJob.id, proposal.freelancerId);
+                    const conversationRef = doc(firebaseDb, "conversations", conversationId);
+                    batch.set(
+                      conversationRef,
+                      {
+                        jobId: selectedJob.id,
+                        jobTitle: selectedJob.title,
+                        proposalId: proposal.id,
+                        clientId,
+                        clientName,
+                        freelancerId: proposal.freelancerId,
+                        freelancerName: proposal.name,
+                        createdBy: "system",
+                        canFreelancerMessage: true,
+                        unread: {
+                          [clientId]: 0,
+                          [proposal.freelancerId]: 0,
+                        },
+                        updatedAt: serverTimestamp(),
+                        createdAt: serverTimestamp(),
+                      },
+                      { merge: true }
+                    );
+                  });
+                  const jobRef = doc(firebaseDb, "jobs", selectedJob.id);
+                  batch.update(jobRef, {
+                    selectedFreelancerIds: arrayUnion(...freelancerIds),
+                    selectedFreelancerNames: arrayUnion(...freelancerNames),
+                    updatedAt: serverTimestamp(),
+                  });
+                  await batch.commit();
+                }}
+              >
+                Accept Selected
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isEditModalOpen && editJob ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center px-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setIsEditModalOpen(false)}
+          />
+          <div className="relative z-[91] w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-[16px] border border-[#EAE7E2] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(false)}
+              aria-label="Close"
+              className="absolute right-4 top-4 rounded-full border border-[#EAE7E2] bg-white p-2 text-[#6b6762] hover:bg-[#F7F4F0]"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+
+            <div className="mb-5">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8C4F00]">
+                Edit Job
+              </div>
+              <h2 className="mt-2 text-[20px] font-semibold text-[#1a1a1a]">Update job details</h2>
+              <p className="mt-1 text-[12px] text-[#6b6762]">
+                Make changes to your job post and save them.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Job Title</label>
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Category</label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                >
+                  <option value="">Select a category</option>
+                  {JOB_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Budget</label>
+                <input
+                  value={editBudget}
+                  onChange={(e) => setEditBudget(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Job Type</label>
+                <select
+                  value={editType}
+                  onChange={(e) => setEditType(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                >
+                  <option>Fixed Price</option>
+                  <option>Hourly</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Description</label>
+                <textarea
+                  rows={4}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                />
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Skills</label>
+                <div className="rounded-lg border border-[#EAE7E2] px-3 py-2">
+                  <input
+                    value={editSkillInput}
+                    onChange={(e) => setEditSkillInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        const cleaned = editSkillInput.trim().replace(/,$/, "");
+                        if (!cleaned) return;
+                        setEditSkills((prev) => (prev.includes(cleaned) ? prev : [...prev, cleaned]));
+                        setEditSkillInput("");
+                      }
+                      if (e.key === "Backspace" && !editSkillInput && editSkills.length) {
+                        setEditSkills((prev) => prev.slice(0, -1));
+                      }
+                    }}
+                    className="w-full bg-transparent text-[12px] focus:outline-none"
+                    placeholder="Type a skill and press Enter"
+                  />
+                  {editSkills.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {editSkills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="inline-flex items-center gap-2 rounded-full bg-[#F6F3F1] px-3 py-1 text-[10px] font-semibold uppercase text-[#666]"
+                        >
+                          {skill}
+                          <button
+                            type="button"
+                            onClick={() => setEditSkills((prev) => prev.filter((s) => s !== skill))}
+                            className="text-[#9e9690] hover:text-[#1a1a1a]"
+                            aria-label={`Remove ${skill}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <p className="text-[10px] text-[#9e9690]">Press Enter or comma to add a skill.</p>
+              </div>
+              <div className="flex items-center justify-between gap-3 md:col-span-2 rounded-lg border border-[#EAE7E2] px-4 py-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">Urgent</div>
+                  <div className="text-[12px] text-[#6b6762]">Mark this job as high priority.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditUrgent((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    editUrgent ? "bg-orange-500" : "bg-[#EAE7E2]"
+                  }`}
+                  aria-pressed={editUrgent}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      editUrgent ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as JobStatus)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                >
+                  <option value="Open">Open</option>
+                  <option value="In Review">In Review</option>
+                  <option value="Paused">Paused</option>
+                </select>
               </div>
             </div>
 
-            <div className="mt-4 flex flex-col gap-3">
-              {proposals.map((proposal) => (
-                <ClientProposalCard
-                  key={proposal.id}
-                  {...proposal}
-                  isSelected={!!selectedProposals[proposal.id]}
-                  onToggle={() =>
-                    setSelectedProposals((prev) => ({
-                      ...prev,
-                      [proposal.id]: !prev[proposal.id],
-                    }))
+            <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button size="sm" variant="outline" className="rounded-full w-full sm:w-auto" onClick={() => setIsEditModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="rounded-full w-full sm:w-auto"
+                onClick={async () => {
+                  if (!editJob?.id) return;
+                  // if (!editTitle.trim() || !editBudget.trim() || !editDescription.trim()) return;
+                  
+                  // WITH THIS:
+if (!editTitle.trim() || editTitle.trim().length < 3) {
+  alert("Please enter a job title (at least 3 characters).");
+  return;
+}
+if (!editBudget.trim()) {
+  alert("Please enter a budget.");
+  return;
+}
+if (!editDescription.trim() || editDescription.trim().length < 20) {
+  alert("Please write a description (at least 20 characters).");
+  return;
+}
+                  setIsSavingEdit(true);
+                  try {
+                    await updateDoc(doc(firebaseDb, "jobs", editJob.id), {
+                      title: editTitle.trim(),
+                      category: editCategory.trim(),
+                      budget: editBudget.trim(),
+                      jobType: editType,
+                      description: editDescription.trim(),
+                      skills: editSkills,
+                      urgent: editUrgent,
+                      status: editStatus,
+                      updatedAt: serverTimestamp(),
+                    });
+                    setIsEditModalOpen(false);
+                  } finally {
+                    setIsSavingEdit(false);
                   }
-                />
-              ))}
+                }}
+                disabled={isSavingEdit}
+              >
+                {isSavingEdit ? "Saving..." : "Save Changes"}
+              </Button>
             </div>
           </div>
         </div>
@@ -341,26 +799,125 @@ export default function ClientJobPostsContent() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div className="flex flex-col gap-2 md:col-span-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Job Title</label>
-                <input className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="e.g. Lightning Node Observability Suite" />
+                <input
+                  value={postTitle}
+                  onChange={(e) => setPostTitle(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="e.g. Lightning Node Observability Suite"
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Category</label>
+                <select
+                  value={postCategory}
+                  onChange={(e) => setPostCategory(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                >
+                  <option value="">Select a category</option>
+                  {JOB_CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Budget</label>
-                <input className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="450,000 sats" />
+                <input
+                  value={postBudget}
+                  onChange={(e) => setPostBudget(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="450,000 sats"
+                />
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Job Type</label>
-                <select className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400">
+                <select
+                  value={postType}
+                  onChange={(e) => setPostType(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                >
                   <option>Fixed Price</option>
                   <option>Hourly</option>
                 </select>
               </div>
               <div className="flex flex-col gap-2 md:col-span-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Description</label>
-                <textarea rows={4} className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Describe the scope, goals, and deliverables." />
+                <textarea
+                  rows={4}
+                  value={postDescription}
+                  onChange={(e) => setPostDescription(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="Describe the scope, goals, and deliverables."
+                />
               </div>
               <div className="flex flex-col gap-2 md:col-span-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Skills</label>
-                <input className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400" placeholder="Rust, Lightning, Monitoring" />
+                <div className="rounded-lg border border-[#EAE7E2] px-3 py-2">
+                  <input
+                    value={skillInput}
+                    onChange={(e) => setSkillInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === ",") {
+                        e.preventDefault();
+                        const cleaned = skillInput.trim().replace(/,$/, "");
+                        if (!cleaned) return;
+                        setPostSkills((prev) =>
+                          prev.includes(cleaned) ? prev : [...prev, cleaned]
+                        );
+                        setSkillInput("");
+                      }
+                      if (e.key === "Backspace" && !skillInput && postSkills.length) {
+                        setPostSkills((prev) => prev.slice(0, -1));
+                      }
+                    }}
+                    className="w-full bg-transparent text-[12px] focus:outline-none"
+                    placeholder="Type a skill and press Enter"
+                  />
+                  {postSkills.length ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {postSkills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="inline-flex items-center gap-2 rounded-full bg-[#F6F3F1] px-3 py-1 text-[10px] font-semibold uppercase text-[#666]"
+                        >
+                          {skill}
+                          <button
+                            type="button"
+                            onClick={() => setPostSkills((prev) => prev.filter((s) => s !== skill))}
+                            className="text-[#9e9690] hover:text-[#1a1a1a]"
+                            aria-label={`Remove ${skill}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <p className="text-[10px] text-[#9e9690]">
+                  Press Enter or comma to add a skill.
+                </p>
+              </div>
+              <div className="flex items-center justify-between gap-3 md:col-span-2 rounded-lg border border-[#EAE7E2] px-4 py-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">Urgent</div>
+                  <div className="text-[12px] text-[#6b6762]">Mark this job as high priority.</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPostUrgent((v) => !v)}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    postUrgent ? "bg-orange-500" : "bg-[#EAE7E2]"
+                  }`}
+                  aria-pressed={postUrgent}
+                >
+                  <span
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                      postUrgent ? "translate-x-5" : "translate-x-1"
+                    }`}
+                  />
+                </button>
               </div>
             </div>
 
@@ -368,8 +925,82 @@ export default function ClientJobPostsContent() {
               <Button size="sm" variant="outline" className="rounded-full w-full sm:w-auto">
                 Save Draft
               </Button>
-              <Button size="sm" className="rounded-full w-full sm:w-auto">
-                Publish Job
+              <Button
+                size="sm"
+                className="rounded-full w-full sm:w-auto"
+                onClick={async () => {
+                  // if (!postTitle.trim() || !postBudget.trim() || !postDescription.trim()) {
+                  //   return;
+                  // }
+
+                  // WITH THIS:
+if (!postTitle.trim() || postTitle.trim().length < 3) {
+  alert("Please enter a job title (at least 3 characters).");
+  return;
+}
+if (!postBudget.trim()) {
+  alert("Please enter a budget.");
+  return;
+}
+if (!postDescription.trim() || postDescription.trim().length < 20) {
+  alert("Please write a description (at least 20 characters).");
+  return;
+}
+                  const user = firebaseAuth.currentUser;
+                  if (!user) {
+                    setJobsError("Please log in to publish a job.");
+                    return;
+                  }
+                  setIsPublishing(true);
+                  try {
+                    const uuid =
+                      typeof crypto !== "undefined" && "randomUUID" in crypto
+                        ? crypto.randomUUID()
+                        : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+                    const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", user.uid));
+                    const clientsSnap = await getDoc(doc(firebaseDb, "clients", user.uid));
+                    const allData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+                    const clientData = clientsSnap.exists() ? (clientsSnap.data() as any) : {};
+                    const clientName =
+                      allData.fullName ?? allData.email ?? "Client";
+                    const clientCompany =
+                      clientData.companyName ?? "";
+
+                    await addDoc(collection(firebaseDb, "jobs"), {
+                      uuid,
+                      title: postTitle.trim(),
+                      category: postCategory.trim(),
+                      budget: postBudget.trim(),
+                      jobType: postType,
+                      description: postDescription.trim(),
+                      skills: postSkills,
+                      urgent: postUrgent,
+                      status: "Open",
+                      proposals: 0,
+                      clientId: user.uid,
+                      clientName,
+                      clientCompany,
+                      createdAt: serverTimestamp(),
+                      updatedAt: serverTimestamp(),
+                    });
+
+                    setPostTitle("");
+                    setPostCategory("");
+                    setPostBudget("");
+                    setPostType("Fixed Price");
+                    setPostDescription("");
+                    setPostUrgent(false);
+                    setPostSkills([]);
+                    setSkillInput("");
+                    setIsPostModalOpen(false);
+                  } finally {
+                    setIsPublishing(false);
+                  }
+                }}
+                disabled={isPublishing}
+              >
+                {isPublishing ? "Publishing..." : "Publish Job"}
               </Button>
             </div>
           </div>

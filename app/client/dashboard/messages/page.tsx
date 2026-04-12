@@ -1,11 +1,25 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import ClientSidebar from "@/components/molecules/ClientSidebar";
 import MessagesList from "@/components/organisms/MessagesList";
 import ChatView from "@/components/organisms/ChatView";
+import { firebaseAuth, firebaseDb } from "@/lib/firebase";
+import {
+  addDoc,
+  collection,
+  doc,
+  increment,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+  where,
+} from "firebase/firestore";
 
-interface Message {
+interface MessageListItem {
   id: string;
   sender: {
     name: string;
@@ -28,89 +42,160 @@ interface ChatMessage {
   isRead?: boolean;
 }
 
-const MOCK_MESSAGES: Message[] = [
-  {
-    id: "1",
-    sender: {
-      name: "Lightning Labs Inc.",
-      avatar: "/assets/avatar.png",
-      isOnline: true,
-    },
-    lastMessage: {
-      text: "Thanks for your proposal! We'd like to discuss the project details.",
-      timestamp: "2 min ago",
-      isRead: false,
-    },
-    unreadCount: 2,
-  },
-  {
-    id: "2",
-    sender: {
-      name: "Bitcoin Core Team",
-      avatar: "/assets/avatar.png",
-      isOnline: false,
-    },
-    lastMessage: {
-      text: "Your Rust implementation looks promising. Let's schedule a call.",
-      timestamp: "1 hour ago",
-      isRead: true,
-    },
-    unreadCount: 0,
-  },
-  {
-    id: "3",
-    sender: {
-      name: "Blockstream",
-      avatar: "/assets/avatar.png",
-      isOnline: true,
-    },
-    lastMessage: {
-      text: "Hi! We have an interesting project that matches your skills.",
-      timestamp: "3 hours ago",
-      isRead: false,
-    },
-    unreadCount: 1,
-  },
-];
+type Conversation = {
+  id: string;
+  jobId: string;
+  jobTitle?: string;
+  clientId: string;
+  clientName?: string;
+  freelancerId: string;
+  freelancerName?: string;
+  canFreelancerMessage?: boolean;
+  lastMessage?: {
+    text?: string;
+    senderId?: string;
+    createdAt?: any;
+  };
+  unread?: Record<string, number>;
+};
 
-const MOCK_CHAT_MESSAGES: ChatMessage[] = [
-  {
-    id: "1",
-    sender: "them",
-    text: "Hi! Thanks for applying to our Senior Rust Engineer position.",
-    timestamp: "10:30 AM",
-    isRead: true,
-  },
-  {
-    id: "2",
-    sender: "me",
-    text:
-      "Thank you! I'm very excited about this opportunity. I have extensive experience with Rust and Lightning Network protocols.",
-    timestamp: "10:32 AM",
-    isRead: true,
-  },
-  {
-    id: "3",
-    sender: "them",
-    text: "Great! We'd like to discuss the project timeline and your availability. Are you available for a quick call this week?",
-    timestamp: "10:35 AM",
-    isRead: true,
-  },
-  {
-    id: "4",
-    sender: "me",
-    text: "Absolutely! I'm available Tuesday or Wednesday afternoon. What time works best for you?",
-    timestamp: "10:37 AM",
-    isRead: false,
-  },
-];
+const formatTimestamp = (value?: any) => {
+  const seconds = value?.seconds;
+  if (!seconds) return "";
+  const date = new Date(seconds * 1000);
+  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+};
 
 export default function ClientMessagesPage() {
+  const searchParams = useSearchParams();
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
-  const [messages] = useState(MOCK_MESSAGES);
-  const [chatMessages] = useState(MOCK_CHAT_MESSAGES);
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
-  const selectedMessage = messages.find((m) => m.id === selectedChat);
+  useEffect(() => {
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) {
+        setConversations([]);
+        setChatMessages([]);
+        setCurrentUserId(null);
+        return;
+      }
+      setCurrentUserId(user.uid);
+      const conversationsQuery = query(
+        collection(firebaseDb, "conversations"),
+        where("clientId", "==", user.uid)
+      );
+      const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
+        const items = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            id: docSnap.id,
+            jobId: data.jobId ?? "",
+            jobTitle: data.jobTitle ?? "",
+            clientId: data.clientId ?? "",
+            clientName: data.clientName ?? "",
+            freelancerId: data.freelancerId ?? "",
+            freelancerName: data.freelancerName ?? "",
+            canFreelancerMessage: !!data.canFreelancerMessage,
+            lastMessage: data.lastMessage ?? {},
+            unread: data.unread ?? {},
+          } as Conversation;
+        });
+        setConversations(items);
+      });
+      return () => unsubscribe();
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    const chatFromUrl = searchParams.get("chat");
+    if (chatFromUrl) {
+      setSelectedChat(chatFromUrl);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    if (!selectedChat || !currentUserId) {
+      setChatMessages([]);
+      return;
+    }
+    const messagesQuery = query(
+      collection(firebaseDb, "conversations", selectedChat, "messages"),
+      orderBy("createdAt", "asc")
+    );
+    const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
+      const items: ChatMessage[] = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data() as any;
+        return {
+          id: docSnap.id,
+          sender: data.senderId === currentUserId ? "me" : "them",
+          text: data.text ?? "",
+          timestamp: formatTimestamp(data.createdAt) || "Now",
+          isRead: true,
+        };
+      });
+      setChatMessages(items);
+    });
+    return () => unsubscribe();
+  }, [selectedChat, currentUserId]);
+
+  useEffect(() => {
+    if (!selectedChat || !currentUserId) return;
+    updateDoc(doc(firebaseDb, "conversations", selectedChat), {
+      [`unread.${currentUserId}`]: 0,
+      updatedAt: serverTimestamp(),
+    }).catch(() => undefined);
+  }, [selectedChat, currentUserId]);
+
+  const messageList = useMemo<MessageListItem[]>(() => {
+    if (!currentUserId) return [];
+    return conversations.map((conv) => {
+      const otherName = conv.freelancerName || "Freelancer";
+      const lastText = conv.lastMessage?.text ?? "Start the conversation";
+      const lastTime = formatTimestamp(conv.lastMessage?.createdAt) || "";
+      const unreadCount = conv.unread?.[currentUserId] ?? 0;
+      return {
+        id: conv.id,
+        sender: {
+          name: otherName,
+          avatar: "/assets/avatar.png",
+          isOnline: true,
+        },
+        lastMessage: {
+          text: lastText,
+          timestamp: lastTime,
+          isRead: unreadCount === 0,
+        },
+        unreadCount,
+      };
+    });
+  }, [conversations, currentUserId]);
+
+  const selectedConversation = conversations.find((c) => c.id === selectedChat) ?? null;
+  const selectedMessage = selectedConversation
+    ? messageList.find((m) => m.id === selectedConversation.id) ?? null
+    : null;
+
+  const handleSendMessage = async (text: string) => {
+    if (!selectedConversation || !currentUserId) return;
+    const otherId = selectedConversation.freelancerId;
+    await addDoc(collection(firebaseDb, "conversations", selectedConversation.id, "messages"), {
+      senderId: currentUserId,
+      senderRole: "client",
+      text,
+      createdAt: serverTimestamp(),
+    });
+    await updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
+      "lastMessage.text": text,
+      "lastMessage.senderId": currentUserId,
+      "lastMessage.createdAt": serverTimestamp(),
+      [`unread.${currentUserId}`]: 0,
+      [`unread.${otherId}`]: increment(1),
+      updatedAt: serverTimestamp(),
+    });
+  };
 
   return (
     <div className="min-h-screen bg-[#F7F6F3] font-sans">
@@ -127,7 +212,7 @@ export default function ClientMessagesPage() {
             `}
             >
               <MessagesList
-                messages={messages}
+                messages={messageList}
                 onSelectChat={setSelectedChat}
                 selectedChat={selectedChat}
               />
@@ -145,6 +230,7 @@ export default function ClientMessagesPage() {
                   message={selectedMessage}
                   chatMessages={chatMessages}
                   onBack={() => setSelectedChat(null)}
+                  onSendMessage={handleSendMessage}
                 />
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-500">

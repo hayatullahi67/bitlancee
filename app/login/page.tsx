@@ -3,20 +3,61 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/organisms/Header';
+import { useRouter } from 'next/navigation';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { firebaseAuth, firebaseDb } from '@/lib/firebase';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) {
       alert('Please fill in all fields');
       return;
     }
-    console.log({ email, password, rememberMe });
+    setIsSubmitting(true);
+    setErrorMessage('');
+
+    try {
+      const credential = await signInWithEmailAndPassword(firebaseAuth, email, password);
+      const uid = credential.user.uid;
+
+      const allUsersSnap = await getDoc(doc(firebaseDb, 'all_users', uid));
+      let role = allUsersSnap.exists() ? allUsersSnap.data().role : undefined;
+
+      if (!role) {
+        const freelancerSnap = await getDoc(doc(firebaseDb, 'freelancers', uid));
+        if (freelancerSnap.exists()) role = 'freelancer';
+      }
+
+      if (!role) {
+        const clientSnap = await getDoc(doc(firebaseDb, 'clients', uid));
+        if (clientSnap.exists()) role = 'client';
+      }
+
+      if (role === 'freelancer') {
+        router.push('/freelancer/dashboard');
+        return;
+      }
+      if (role === 'client') {
+        router.push('/client/dashboard');
+        return;
+      }
+
+      setErrorMessage('Account role not found. Please contact support.');
+    } catch (error: any) {
+      setErrorMessage(error?.message ?? 'Failed to sign in.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -117,10 +158,14 @@ export default function LoginPage() {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-[#1a1a1a] font-bold py-3 px-6 rounded-full mt-8 hover:from-[#7a4500] hover:to-[#e68815] transition-all shadow-md hover:shadow-lg font-sora text-sm sm:text-base"
+                disabled={isSubmitting}
+                className="w-full bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-[#1a1a1a] font-bold py-3 px-6 rounded-full mt-8 hover:from-[#7a4500] hover:to-[#e68815] transition-all shadow-md hover:shadow-lg font-sora text-sm sm:text-base disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Log In →
+                {isSubmitting ? 'Signing In...' : 'Log In →'}
               </button>
+              {errorMessage ? (
+                <p className="text-sm text-red-600">{errorMessage}</p>
+              ) : null}
             </form>
 
             {/* Divider */}

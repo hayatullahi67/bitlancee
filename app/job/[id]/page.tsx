@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -17,17 +17,68 @@ import {
   Link2,
   ArrowLeft
 } from 'lucide-react';
-import { MOCK_JOBS } from '../../../lib/jobs';
+import { firebaseAuth, firebaseDb } from '@/lib/firebase';
+import { addDoc, collection, doc, getDoc, getDocs, increment, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
 
 export default function JobDetailPage() {
   const params = useParams();
-  const jobId = parseInt(params.id as string);
-  const job = MOCK_JOBS.find(j => j.id === jobId);
+  const jobId = params.id as string;
+  const [job, setJob] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'done'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [hasApplied, setHasApplied] = useState(false);
 
   const [coverLetter, setCoverLetter] = useState('');
-  const [bidAmount, setBidAmount] = useState('1,000,000');
+  const [hoursPerWeek, setHoursPerWeek] = useState('20');
+  const [hourlyRate, setHourlyRate] = useState('150,000');
+  const [fixedPrice, setFixedPrice] = useState('1,000,000');
 
+  useEffect(() => {
+    const loadJob = async () => {
+      setLoading(true);
+      try {
+        const snap = await getDoc(doc(firebaseDb, 'jobs', jobId));
+        if (!snap.exists()) {
+          setJob(null);
+          setLoading(false);
+          return;
+        }
+        const data = snap.data() as any;
+        setJob({ id: snap.id, ...data });
+      } finally {
+        setLoading(false);
+      }
+    };
+    if (jobId) loadJob();
+  }, [jobId]);
+
+  useEffect(() => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
+      if (!user || !job?.id) return;
+      const proposalsQuery = query(
+        collection(firebaseDb, 'proposals'),
+        where('jobId', '==', job.id),
+        where('freelancerId', '==', user.uid)
+      );
+      const snap = await getDocs(proposalsQuery);
+      setHasApplied(!snap.empty);
+    });
+    return () => unsubscribe();
+  }, [job?.id]);
+
+  if (loading) return <div className="p-6 sm:p-10 text-center">Loading job...</div>;
   if (!job) return <div className="p-6 sm:p-10 text-center">Job not found</div>;
+
+  const budgetLabel =
+    job?.budget && job.budget.toLowerCase().includes('sats')
+      ? job.budget
+      : `${job?.budget ?? ''} Sats`;
+  const skills = Array.isArray(job?.skills) ? job.skills : [];
+  const postedAt = job?.createdAt?.seconds
+    ? `${Math.max(1, Math.round((Date.now() - job.createdAt.seconds * 1000) / 3600000))} hours ago`
+    : 'Recently';
+  const pricingType = job?.jobType === 'Hourly' ? 'Hourly' : 'Fixed Price';
 
   return (
     <div className="min-h-screen bg-[#F7F6F3] font-sans text-[#1a1a1a]">
@@ -47,12 +98,12 @@ export default function JobDetailPage() {
              <div className="mb-4 sm:mb-6">
               <div className="flex items-center gap-2 sm:gap-3 mb-2">
                 <span className="bg-[#FEF3E2] text-[#92400E] text-[9px] sm:text-[10px] font-extrabold px-2 sm:px-3 py-1 rounded-full uppercase tracking-widest">
-                  Active Posting
+                  {job.status ?? 'Active Posting'}
                 </span>
-                <span className="text-xs text-gray-400">Posted 2 hours ago</span>
+                <span className="text-xs text-gray-400">Posted {postedAt}</span>
               </div>
               <h1 className="text-[28px] sm:text-[40px] lg:text-[60px] font-bold leading-tight mb-3 sm:mb-4 tracking-tight">
-                Senior Rust Engineer for<br />Lighting Network Protocol Layer
+                {job.title}
               </h1>
               {/* Quick Stats Row */}
               <div className="flex flex-wrap gap-4 sm:gap-6 lg:gap-8 mb-2">
@@ -63,7 +114,7 @@ export default function JobDetailPage() {
                   </div>
                   <div>
                     <p className="text-[8px] sm:text-[9px] text-gray-400 uppercase font-extrabold tracking-widest">Budget</p>
-                    <p className="font-bold text-[13px] sm:text-[15px]">1,250,000 <span className="text-[#B45309]">Sats</span></p>
+                    <p className="font-bold text-[13px] sm:text-[15px]">{budgetLabel}</p>
                   </div>
                 </div>
 
@@ -85,7 +136,7 @@ export default function JobDetailPage() {
                   </div>
                   <div>
                     <p className="text-[8px] sm:text-[9px] text-gray-400 uppercase font-extrabold tracking-widest">Client Tier</p>
-                    <p className="font-bold text-[13px] sm:text-[15px]">Top Rated Plus</p>
+                    <p className="font-bold text-[13px] sm:text-[15px]">Top Rated</p>
                   </div>
                 </div>
               </div>
@@ -105,40 +156,26 @@ export default function JobDetailPage() {
               {/* Job Description */}
               <div className="space-y-3 sm:space-y-4">
                 <h2 className="text-base sm:text-lg font-extrabold">Job Description</h2>
-                <p className="text-gray-500 leading-relaxed text-sm">
-                  We are seeking a highly skilled Senior Rust Engineer to join our core protocol team.
-                  You will be responsible for designing and implementing high-performance networking
-                  layers for our proprietary Lightning Network implementation.
-                </p>
-                <p className="text-gray-500 leading-relaxed text-sm">
-                  The ideal candidate has a deep understanding of asynchronous programming in Rust,
-                  distributed systems, and the underlying mechanics of the Bitcoin protocol. You will collaborate
-                  closely with our cryptography team to ensure the highest security standards for channel
-                  management and state transition logic.
-                </p>
-
-                <h3 className="font-extrabold text-sm mt-2">Key Responsibilities:</h3>
-                <ul className="list-disc pl-4 sm:pl-5 space-y-1 sm:space-y-2 text-gray-500 text-sm">
-                  <li>Design and maintain robust peer-to-peer networking protocols using tokio and libp2p.</li>
-                  <li>Optimize channel state machine logic for low-latency transaction processing.</li>
-                  <li>Implement comprehensive unit and integration tests for mission-critical payment paths.</li>
-                  <li>Participate in deep architectural reviews and contribute to open-source Bitcoin standards (BOLTs).</li>
-                </ul>
+                <p className="text-gray-500 leading-relaxed text-sm break-all whitespace-pre-wrap overflow-hidden">
+  {job.description?.replace(/\s{2,}/g, ' ').trim() ?? 'No description provided for this role yet.'}
+</p>
 
                 {/* Tags */}
-                <div className="pt-3 sm:pt-4">
-                  <p className="text-[8px] sm:text-[9px] font-extrabold uppercase text-gray-400 mb-2 sm:mb-3 tracking-widest">Required Expertise</p>
-                  <div className="flex flex-wrap gap-1 sm:gap-2">
-                    {['Rust Lang', 'Bitcoin Protocol', 'Lightning Network', 'Async/Await', 'P2P Networking'].map(tag => (
-                      <span
-                        key={tag}
-                        className="px-3 sm:px-4 py-1 sm:py-2 bg-[#F3F2EF] rounded-full text-xs sm:text-sm font-medium text-gray-700"
-                      >
-                        {tag}
-                      </span>
-                    ))}
+                {skills.length ? (
+                  <div className="pt-3 sm:pt-4">
+                    <p className="text-[8px] sm:text-[9px] font-extrabold uppercase text-gray-400 mb-2 sm:mb-3 tracking-widest">Required Expertise</p>
+                    <div className="flex flex-wrap gap-1 sm:gap-2">
+                      {skills.map((tag: string) => (
+                        <span
+                          key={tag}
+                          className="px-3 sm:px-4 py-1 sm:py-2 bg-[#F3F2EF] rounded-full text-xs sm:text-sm font-medium text-gray-700"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                ) : null}
               </div>
             </div>
 
@@ -178,33 +215,40 @@ export default function JobDetailPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <label className="block text-[8px] sm:text-[9px] font-extrabold uppercase text-gray-400 mb-2 tracking-widest">
-                      Bid Amount (Sats)
+                      {pricingType === 'Hourly' ? 'Hourly Rate (Sats/hr)' : 'Fixed Price (Sats)'}
                     </label>
                     <div className="relative">
                       <input
                         type="text"
-                        value={bidAmount}
-                        onChange={(e) => setBidAmount(e.target.value)}
+                        value={pricingType === 'Hourly' ? hourlyRate : fixedPrice}
+                        onChange={(e) =>
+                          pricingType === 'Hourly'
+                            ? setHourlyRate(e.target.value)
+                            : setFixedPrice(e.target.value)
+                        }
                         className="w-full bg-[#FDFCFB] border border-[#ece7df] rounded-lg sm:rounded-xl px-3 sm:px-4 py-3 sm:py-4 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/30"
                       />
                       <span className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-[10px] sm:text-[11px] font-extrabold text-[#B45309] tracking-wider">
                         SATS
                       </span>
                     </div>
-                    <p className="text-[9px] sm:text-[10px] text-gray-400 mt-1 sm:mt-2">Estimated value: ~ $742.00 USD</p>
+                    <p className="text-[9px] sm:text-[10px] text-gray-400 mt-1 sm:mt-2">
+                      Share your {pricingType === 'Hourly' ? 'hourly' : 'project'} budget in sats.
+                    </p>
                   </div>
 
                   <div>
                     <label className="block text-[8px] sm:text-[9px] font-extrabold uppercase text-gray-400 mb-2 tracking-widest">
-                      Expected Delivery
+                      Hours Per Week
                     </label>
                     <div className="relative">
-                      <select className="w-full bg-[#FDFCFB] border border-[#ece7df] rounded-lg sm:rounded-xl px-3 sm:px-4 py-3 sm:py-4 font-medium text-sm appearance-none focus:outline-none focus:ring-2 focus:ring-orange-400/30 cursor-pointer">
-                        <option>Less than 1 month</option>
-                        <option>1–3 months</option>
-                        <option>3–6 months</option>
-                      </select>
-                      <div className="pointer-events-none absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs">▾</div>
+                      <input
+                        type="text"
+                        value={hoursPerWeek}
+                        onChange={(e) => setHoursPerWeek(e.target.value)}
+                        className="w-full bg-[#FDFCFB] border border-[#ece7df] rounded-lg sm:rounded-xl px-3 sm:px-4 py-3 sm:py-4 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/30"
+                        placeholder="e.g. 20"
+                      />
                     </div>
                   </div>
                 </div>
@@ -217,10 +261,104 @@ export default function JobDetailPage() {
                     </div>
                     5% Bitlance platform fee applies to this contract.
                   </div>
-                  <button className="bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] active:scale-95 text-white px-6 sm:px-8 py-3 sm:py-3.5 rounded-full font-bold text-sm transition-all shadow-md w-full sm:w-auto">
-                    Send Proposal
+                  <button
+                    onClick={async () => {
+                      const user = firebaseAuth.currentUser;
+                      if (!user) {
+                        setErrorMessage('Please log in to submit a proposal.');
+                        return;
+                      }
+                      if (hasApplied) {
+                        setErrorMessage('You already submitted a proposal for this job.');
+                        return;
+                      }
+                      const proposedAmount =
+                        pricingType === 'Hourly' ? hourlyRate.trim() : fixedPrice.trim();
+                      if (!coverLetter.trim() || !proposedAmount) {
+                        setErrorMessage('Please complete your proposal details.');
+                        return;
+                      }
+                      setSubmitState('submitting');
+                      setErrorMessage('');
+                      try {
+                        const proposalsQuery = query(
+                          collection(firebaseDb, 'proposals'),
+                          where('jobId', '==', job.id),
+                          where('freelancerId', '==', user.uid)
+                        );
+                        const existing = await getDocs(proposalsQuery);
+                        if (!existing.empty) {
+                          setHasApplied(true);
+                          setErrorMessage('You already submitted a proposal for this job.');
+                          setSubmitState('idle');
+                          return;
+                        }
+
+                        const allUsersSnap = await getDoc(doc(firebaseDb, 'all_users', user.uid));
+                        const freelancersSnap = await getDoc(doc(firebaseDb, 'freelancers', user.uid));
+                        const allData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+                        const freeData = freelancersSnap.exists() ? (freelancersSnap.data() as any) : {};
+                        const freelancerName = allData.fullName ?? user.displayName ?? 'Freelancer';
+                        const clientName =
+                          job.clientId
+                            ? ((await getDoc(doc(firebaseDb, 'all_users', job.clientId))).data() as any)?.fullName ??
+                              job.clientName ??
+                              job.clientCompany ??
+                              'Client'
+                            : job.clientName ?? job.clientCompany ?? 'Client';
+
+                        await addDoc(collection(firebaseDb, 'proposals'), {
+                          jobId: job.id,
+                          clientId: job.clientId ?? '',
+                          jobTitle: job.title ?? 'Job Proposal',
+                          clientName,
+                          freelancerId: user.uid,
+                          freelancerName,
+                          freelancerTitle: freeData.title ?? 'Professional',
+                          cover: coverLetter.trim(),
+                          rate: proposedAmount,
+                          pricingType,
+                          hourlyRate: pricingType === 'Hourly' ? proposedAmount : '',
+                          fixedPrice: pricingType === 'Hourly' ? '' : proposedAmount,
+                          hoursPerWeek: hoursPerWeek.trim(),
+                          availability: freeData.availability ?? 'Available',
+                          rating: freeData.rating ?? 5,
+                          status: 'submitted',
+                          createdAt: serverTimestamp(),
+                          updatedAt: serverTimestamp(),
+                        });
+
+                        await updateDoc(doc(firebaseDb, 'jobs', job.id), {
+                          proposals: increment(1),
+                          updatedAt: serverTimestamp(),
+                        });
+
+                        setSubmitState('done');
+                        setCoverLetter('');
+                        setHourlyRate('150,000');
+                        setFixedPrice('1,000,000');
+                        setHoursPerWeek('20');
+                        setHasApplied(true);
+                      } catch {
+                        setErrorMessage('Unable to submit proposal right now.');
+                      } finally {
+                        setSubmitState('idle');
+                      }
+                    }}
+                    disabled={submitState === 'submitting' || hasApplied}
+                    className="bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] active:scale-95 text-white px-6 sm:px-8 py-3 sm:py-3.5 rounded-full font-bold text-sm transition-all shadow-md w-full sm:w-auto disabled:opacity-70"
+                  >
+                    {hasApplied ? 'Applied' : submitState === 'submitting' ? 'Sending...' : 'Send Proposal'}
                   </button>
                 </div>
+                {errorMessage ? (
+                  <p className="text-[11px] text-red-600">{errorMessage}</p>
+                ) : null}
+                {submitState === 'done' ? (
+                  <div className="mt-3 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-[11px] text-green-700">
+                    Proposal submitted successfully.
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -230,8 +368,11 @@ export default function JobDetailPage() {
             <div className="bg-[#ECE9E2] rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 flex flex-col gap-4 sm:gap-7">
               {/* Action Card */}
               <div>
-                <button className="w-full bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] hover:from-[#A85C00] hover:to-[#A85C00] active:scale-95 text-white py-3 sm:py-4 rounded-full font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-md mb-2 sm:mb-3">
-                  Apply Now <Zap className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+                <button
+                  disabled={hasApplied}
+                  className="w-full bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] hover:from-[#A85C00] hover:to-[#A85C00] active:scale-95 text-white py-3 sm:py-4 rounded-full font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-md mb-2 sm:mb-3 disabled:opacity-70"
+                >
+                  {hasApplied ? 'Applied' : 'Apply Now'} <Zap className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
                 </button>
                 <button className="w-full bg-white hover:bg-gray-100 text-[#1a1a1a] py-3 sm:py-4 rounded-full font-bold text-sm sm:text-base border border-[#e0e0e0] flex items-center justify-center gap-2 transition-all shadow-sm">
                   <Bookmark className="w-4 h-4 sm:w-5 sm:h-5" /> Save Job

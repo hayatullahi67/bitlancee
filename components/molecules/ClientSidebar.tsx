@@ -1,7 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { signOut } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 
 interface SidebarItem {
   label: string;
@@ -23,6 +27,16 @@ const CLIENT_SIDEBAR_ITEMS: SidebarItem[] = [
         <rect x="14" y="3" width="7" height="7" rx="1" />
         <rect x="3" y="14" width="7" height="7" rx="1" />
         <rect x="14" y="14" width="7" height="7" rx="1" />
+      </svg>
+    ),
+  },
+  {
+    label: "Profile",
+    href: "/client/dashboard/profile",
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+        <circle cx="12" cy="7" r="4" />
       </svg>
     ),
   },
@@ -94,6 +108,43 @@ const CLIENT_SIDEBAR_ITEMS: SidebarItem[] = [
 
 export default function ClientSidebar({ active = "/client/dashboard" }: ClientSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [displayName, setDisplayName] = useState("Client");
+  const router = useRouter();
+
+  useEffect(() => {
+    const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const snap = await getDoc(doc(firebaseDb, "all_users", user.uid));
+        const data = snap.exists() ? (snap.data() as any) : null;
+        const fullName = data?.fullName ?? user.displayName ?? "Client";
+        setDisplayName(fullName);
+      } catch {
+        setDisplayName(user.displayName ?? "Client");
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("") || "CL";
+
+  const handleLogout = async () => {
+    if (isSigningOut) return;
+    setIsSigningOut(true);
+    try {
+      await signOut(firebaseAuth);
+      setIsOpen(false);
+      router.push("/login");
+    } catch {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <>
@@ -133,7 +184,7 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
           </svg>
         </button>
 
-        <Link href="/client/dashboard" onClick={() => setIsOpen(false)} className="flex flex-col items-start gap-0.5 mb-10 px-1">
+        <Link href="/client/dashboard/profile" onClick={() => setIsOpen(false)} className="flex flex-col items-start gap-0.5 mb-10 px-1">
           <div className="w-14 h-14 rounded-full bg-[#e8dfd4] flex items-center justify-center mb-3 overflow-hidden border-2 border-white shadow-md">
             <img
               src="/assets/avatar.png"
@@ -142,11 +193,11 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = "none";
-                target.parentElement!.innerHTML = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#8C4F00" strokeWidth="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`;
+                target.parentElement!.innerHTML = `<div style="font-weight:700;color:#8C4F00;">${initials}</div>`;
               }}
             />
           </div>
-          <h3 className="text-base font-black text-[#1a1a1a] leading-tight">Atlas Ventures</h3>
+          <h3 className="text-base font-black text-[#1a1a1a] leading-tight">{displayName}</h3>
           <p className="text-[11px] font-black text-orange-600 uppercase tracking-widest">Client</p>
         </Link>
 
@@ -180,13 +231,17 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
         </Link>
 
         <div className="flex flex-col gap-1 border-t border-orange-100 pt-6">
-          <button className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a] transition-all w-full text-left">
+          <button
+            onClick={handleLogout}
+            disabled={isSigningOut}
+            className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a] transition-all w-full text-left disabled:opacity-70 disabled:cursor-not-allowed"
+          >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#9e9690]">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
               <line x1="21" y1="12" x2="9" y2="12" />
             </svg>
-            Logout
+            {isSigningOut ? "Logging out..." : "Logout"}
           </button>
         </div>
       </aside>

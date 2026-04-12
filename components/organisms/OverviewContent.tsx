@@ -193,7 +193,7 @@
 
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   CircleDollarSign, 
   Briefcase, 
@@ -205,13 +205,8 @@ import {
   Clock,
   ShieldCheck
 } from 'lucide-react';
-
-// --- MOCK DATA (Easy to replace with Backend API) ---
-const RECENT_APPLICATIONS = [
-  { id: 1, project: 'Lightning Network Integration', client: 'SatoshiLab', amount: '0.05 BTC', status: 'Approved', date: '2h ago' },
-  { id: 2, project: 'React Native Wallet UI', client: 'BitFlow', amount: '0.012 BTC', status: 'Pending', date: '5h ago' },
-  { id: 3, project: 'Smart Contract Audit', client: 'BlockSecure', amount: '0.08 BTC', status: 'Rejected', date: '1d ago' },
-];
+import { firebaseAuth, firebaseDb } from '@/lib/firebase';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
 
 const USER_STATS = {
   totalEarnings: "2.45 BTC",
@@ -222,6 +217,43 @@ const USER_STATS = {
 };
 
 export default function OverviewContent() {
+  const [recentApplications, setRecentApplications] = useState<
+    Array<{ id: string; project: string; client: string; amount: string; status: string; date: string }>
+  >([]);
+
+  useEffect(() => {
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) return;
+      const proposalsQuery = query(
+        collection(firebaseDb, 'proposals'),
+        where('freelancerId', '==', user.uid)
+      );
+      const unsubscribe = onSnapshot(proposalsQuery, (snapshot) => {
+        const items = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          const createdAt = data.createdAt?.seconds ? data.createdAt.seconds * 1000 : 0;
+          const date = createdAt ? `${Math.max(1, Math.round((Date.now() - createdAt) / 3600000))}h ago` : 'Recently';
+          const statusMap: any = {
+            accepted: 'Approved',
+            submitted: 'Pending',
+            rejected: 'Rejected',
+          };
+          return {
+            id: docSnap.id,
+            project: data.jobTitle ?? 'Job Proposal',
+            client: data.clientName ?? 'Client',
+            amount: data.rate ?? '—',
+            status: statusMap[data.status] ?? 'Pending',
+            date,
+          };
+        });
+        setRecentApplications(items.slice(0, 5));
+      });
+      return () => unsubscribe();
+    });
+    return () => unsubscribeAuth();
+  }, []);
+
   return (
     <section className="bg-[#FCF9F7] py-16">
       <div className="mx-auto w-full max-w-7xl px-6 lg:px-8">
@@ -294,7 +326,7 @@ export default function OverviewContent() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#ece7df]">
-                {RECENT_APPLICATIONS.map((app) => (
+                {recentApplications.map((app) => (
                   <tr key={app.id} className="hover:bg-[#FCF9F7] transition-colors group">
                     <td className="px-6 py-4">
                       <div className="font-bold text-[#1a1a1a] group-hover:text-[#F7931A] transition-colors">{app.project}</div>

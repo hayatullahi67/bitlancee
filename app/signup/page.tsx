@@ -3,21 +3,74 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/organisms/Header';
+import { useRouter } from 'next/navigation';
+import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { firebaseAuth, firebaseDb } from '@/lib/firebase';
 
 export default function SignupPage() {
   const [userType, setUserType] = useState<'work' | 'hire'>('work');
   const [showPassword, setShowPassword] = useState(false);
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [agreeToTerms, setAgreeToTerms] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const router = useRouter();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password || !agreeToTerms) {
+    if (!firstName || !lastName || !email || !password || !agreeToTerms) {
       alert('Please fill in all fields and agree to terms');
       return;
     }
-    console.log({ userType, email, password });
+    setIsSubmitting(true);
+    setErrorMessage('');
+
+    const role = userType === 'work' ? 'freelancer' : 'client';
+    const isFreelancer = role === 'freelancer';
+    const isClient = role === 'client';
+
+    try {
+      const credential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+      const uid = credential.user.uid;
+      const fullName = `${firstName.trim()} ${lastName.trim()}`.trim();
+
+      await updateProfile(credential.user, { displayName: fullName });
+
+      await setDoc(doc(firebaseDb, 'all_users', uid), {
+        uid,
+        email,
+        role,
+        isFreelancer,
+        isClient,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        fullName,
+        createdAt: serverTimestamp(),
+      });
+
+      const roleCollection = role === 'freelancer' ? 'freelancers' : 'clients';
+      await setDoc(doc(firebaseDb, roleCollection, uid), {
+        uid,
+        email,
+        role,
+        isFreelancer,
+        isClient,
+        firstName: firstName.trim(),
+        lastName: lastName.trim(),
+        fullName,
+        createdAt: serverTimestamp(),
+      });
+
+      router.push(role === 'freelancer' ? '/freelancer/dashboard' : '/client/dashboard');
+    } catch (error: any) {
+      setErrorMessage(error?.message ?? 'Failed to create account.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -86,6 +139,32 @@ export default function SignupPage() {
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[#999] text-xs font-bold tracking-wider uppercase mb-2 block">
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    value={firstName}
+                    onChange={(e) => setFirstName(e.target.value)}
+                    placeholder="Satoshi"
+                    className="w-full bg-[#f5f0e8] rounded-2xl px-4 py-3 text-[#1a1a1a] placeholder-[#ccc] border border-transparent focus:outline-none focus:border-[#F7931A] transition-colors"
+                  />
+                </div>
+                <div>
+                  <label className="text-[#999] text-xs font-bold tracking-wider uppercase mb-2 block">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    value={lastName}
+                    onChange={(e) => setLastName(e.target.value)}
+                    placeholder="Nakamoto"
+                    className="w-full bg-[#f5f0e8] rounded-2xl px-4 py-3 text-[#1a1a1a] placeholder-[#ccc] border border-transparent focus:outline-none focus:border-[#F7931A] transition-colors"
+                  />
+                </div>
+              </div>
               {/* Email */}
               <div>
                 <label className="text-[#999] text-xs font-bold tracking-wider uppercase mb-2 block">
@@ -158,10 +237,14 @@ export default function SignupPage() {
               {/* Submit Button */}
               <button
                 type="submit"
-                className="w-full bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-[#1a1a1a] font-bold py-3 px-6 rounded-full mt-6 hover:from-[#7a4500] hover:to-[#e68815] transition-all shadow-md hover:shadow-lg font-sora text-sm sm:text-base"
+                disabled={isSubmitting}
+                className="w-full bg-gradient-to-r from-[#8C4F00] to-[#F7931A] text-[#1a1a1a] font-bold py-3 px-6 rounded-full mt-6 hover:from-[#7a4500] hover:to-[#e68815] transition-all shadow-md hover:shadow-lg font-sora text-sm sm:text-base disabled:opacity-70 disabled:cursor-not-allowed"
               >
-                Create My Account →
+                {isSubmitting ? 'Creating Account...' : 'Create My Account →'}
               </button>
+              {errorMessage ? (
+                <p className="text-sm text-red-600">{errorMessage}</p>
+              ) : null}
             </form>
 
             {/* Divider */}
