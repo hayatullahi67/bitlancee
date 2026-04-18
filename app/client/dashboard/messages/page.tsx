@@ -1,15 +1,16 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import ClientSidebar from "@/components/molecules/ClientSidebar";
 import MessagesList from "@/components/organisms/MessagesList";
 import ChatView from "@/components/organisms/ChatView";
-import { firebaseAuth, firebaseDb } from "@/lib/firebase";
+import { firebaseAuth, firebaseDb, firebaseRtdb } from "@/lib/firebase";
 import {
   addDoc,
   collection,
   doc,
+  getDoc,
   increment,
   onSnapshot,
   orderBy,
@@ -18,6 +19,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
+import { onValue, ref as rtdbRef } from "firebase/database";
 
 interface MessageListItem {
   id: string;
@@ -25,6 +27,7 @@ interface MessageListItem {
     name: string;
     avatar: string;
     isOnline: boolean;
+    profileUrl?: string;
   };
   lastMessage: {
     text: string;
@@ -40,6 +43,13 @@ interface ChatMessage {
   text: string;
   timestamp: string;
   isRead?: boolean;
+  attachment?: {
+    name: string;
+    size: string;
+    url?: string;
+    mimeType?: string;
+    resourceType?: string;
+  };
 }
 
 type Conversation = {
@@ -50,6 +60,8 @@ type Conversation = {
   clientName?: string;
   freelancerId: string;
   freelancerName?: string;
+  clientAvatarUrl?: string;
+  freelancerAvatarUrl?: string;
   canFreelancerMessage?: boolean;
   lastMessage?: {
     text?: string;
@@ -57,6 +69,7 @@ type Conversation = {
     createdAt?: any;
   };
   unread?: Record<string, number>;
+  otherOnline?: boolean;
 };
 
 const formatTimestamp = (value?: any) => {
@@ -72,6 +85,20 @@ export default function ClientMessagesPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [presenceMap, setPresenceMap] = useState<Record<string, boolean>>({});
+  const presenceUnsubs = useRef<Record<string, () => void>>({});
+
+  const formatFileSize = (bytes: number) => {
+    if (!bytes || Number.isNaN(bytes)) return "0 B";
+    const units = ["B", "KB", "MB", "GB"];
+    let size = bytes;
+    let idx = 0;
+    while (size >= 1024 && idx < units.length - 1) {
+      size /= 1024;
+      idx += 1;
+    }
+    return `${size.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
+  };
 
   useEffect(() => {
     const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
@@ -86,27 +113,80 @@ export default function ClientMessagesPage() {
         collection(firebaseDb, "conversations"),
         where("clientId", "==", user.uid)
       );
-      const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
-        const items = snapshot.docs.map((docSnap) => {
+      const unsubscribe = onSnapshot(conversationsQuery, async (snapshot) => {
+        const items = await Promise.all(snapshot.docs.map(async (docSnap) => {
           const data = docSnap.data() as any;
+          const freelancerId = data.freelancerId ?? "";
+          let freelancerName = data.freelancerName ?? "";
+          let freelancerAvatarUrl = data.freelancerAvatarUrl ?? "";
+
+          if (freelancerId && (!freelancerName || !freelancerAvatarUrl)) {
+            try {
+              const [freelancerSnap, allUsersSnap] = await Promise.all([
+                getDoc(doc(firebaseDb, "freelancers", freelancerId)),
+                getDoc(doc(firebaseDb, "all_users", freelancerId)),
+              ]);
+              const f = freelancerSnap.exists() ? (freelancerSnap.data() as any) : {};
+              const a = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+              if (!freelancerName) {
+                const composedName = `${f.firstName ?? ""} ${f.lastName ?? ""}`.trim();
+                freelancerName = f.fullName ?? a.fullName ?? composedName ?? a.name ?? "Freelancer";
+              }
+              if (!freelancerAvatarUrl) freelancerAvatarUrl = f.avatarUrl ?? a.avatarUrl ?? "";
+            } catch {
+              // keep fallback values
+            }
+          }
+
           return {
             id: docSnap.id,
             jobId: data.jobId ?? "",
             jobTitle: data.jobTitle ?? "",
             clientId: data.clientId ?? "",
             clientName: data.clientName ?? "",
-            freelancerId: data.freelancerId ?? "",
-            freelancerName: data.freelancerName ?? "",
+            freelancerId,
+            freelancerName: freelancerName || "Freelancer",
+            clientAvatarUrl: data.clientAvatarUrl ?? "",
+            freelancerAvatarUrl,
             canFreelancerMessage: !!data.canFreelancerMessage,
             lastMessage: data.lastMessage ?? {},
             unread: data.unread ?? {},
+            otherOnline: presenceMap[freelancerId] ?? false,
           } as Conversation;
-        });
+        }));
         setConversations(items);
+
+        const activeIds = new Set(
+          snapshot.docs.map((docSnap) => (docSnap.data() as any).freelancerId ?? "").filter(Boolean)
+        );
+
+        Object.keys(presenceUnsubs.current).forEach((uid) => {
+          if (!activeIds.has(uid)) {
+            presenceUnsubs.current[uid]();
+            delete presenceUnsubs.current[uid];
+          }
+        });
+
+        activeIds.forEach((uid) => {
+          if (presenceUnsubs.current[uid]) return;
+          const statusRef = rtdbRef(firebaseRtdb, `/status/${uid}`);
+          const unsubscribePresence = onValue(statusRef, (snap) => {
+            const isOnline = snap.exists() && snap.val()?.state === "online";
+            setPresenceMap((prev) => ({ ...prev, [uid]: isOnline }));
+          });
+          presenceUnsubs.current[uid] = unsubscribePresence;
+        });
       });
       return () => unsubscribe();
     });
     return () => unsubscribeAuth();
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      Object.values(presenceUnsubs.current).forEach((unsub) => unsub());
+      presenceUnsubs.current = {};
+    };
   }, []);
 
   useEffect(() => {
@@ -128,12 +208,22 @@ export default function ClientMessagesPage() {
     const unsubscribe = onSnapshot(messagesQuery, (snapshot) => {
       const items: ChatMessage[] = snapshot.docs.map((docSnap) => {
         const data = docSnap.data() as any;
+        const attachmentData = data.attachment as any;
         return {
           id: docSnap.id,
           sender: data.senderId === currentUserId ? "me" : "them",
           text: data.text ?? "",
           timestamp: formatTimestamp(data.createdAt) || "Now",
           isRead: true,
+          attachment: attachmentData
+            ? {
+                name: attachmentData.name ?? "Attachment",
+                size: attachmentData.size ?? formatFileSize(attachmentData.bytes ?? 0),
+                url: attachmentData.url ?? "",
+                mimeType: attachmentData.mimeType ?? "",
+                resourceType: attachmentData.resourceType ?? "",
+              }
+            : undefined,
         };
       });
       setChatMessages(items);
@@ -160,8 +250,9 @@ export default function ClientMessagesPage() {
         id: conv.id,
         sender: {
           name: otherName,
-          avatar: "/assets/avatar.png",
-          isOnline: true,
+          avatar: conv.freelancerAvatarUrl || "/assets/avatar.png",
+          profileUrl: conv.freelancerId ? `/freelancer/public/${conv.freelancerId}` : "",
+          isOnline: !!presenceMap[conv.freelancerId],
         },
         lastMessage: {
           text: lastText,
@@ -178,17 +269,46 @@ export default function ClientMessagesPage() {
     ? messageList.find((m) => m.id === selectedConversation.id) ?? null
     : null;
 
-  const handleSendMessage = async (text: string) => {
+  const handleSendMessage = async (text: string, file?: File | null) => {
     if (!selectedConversation || !currentUserId) return;
     const otherId = selectedConversation.freelancerId;
+    let attachment: Record<string, any> | undefined;
+
+    if (file) {
+      const idToken = await firebaseAuth.currentUser?.getIdToken();
+      if (!idToken) return;
+      const formData = new FormData();
+      formData.append("file", file);
+      const uploadResponse = await fetch("/api/chat/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: formData,
+      });
+      const uploadPayload = (await uploadResponse.json()) as any;
+      if (!uploadResponse.ok || !uploadPayload?.url) {
+        throw new Error(uploadPayload?.error || "Failed to upload attachment.");
+      }
+      attachment = {
+        url: uploadPayload.url,
+        name: uploadPayload.name ?? file.name,
+        bytes: uploadPayload.bytes ?? file.size,
+        size: formatFileSize(uploadPayload.bytes ?? file.size),
+        mimeType: uploadPayload.mimeType ?? file.type,
+        resourceType: uploadPayload.resourceType ?? "auto",
+        publicId: uploadPayload.publicId ?? "",
+      };
+    }
+
+    const messageText = text || (attachment ? `Shared a file: ${attachment.name}` : "");
     await addDoc(collection(firebaseDb, "conversations", selectedConversation.id, "messages"), {
       senderId: currentUserId,
       senderRole: "client",
-      text,
+      text: messageText,
+      attachment: attachment ?? null,
       createdAt: serverTimestamp(),
     });
     await updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
-      "lastMessage.text": text,
+      "lastMessage.text": messageText,
       "lastMessage.senderId": currentUserId,
       "lastMessage.createdAt": serverTimestamp(),
       [`unread.${currentUserId}`]: 0,

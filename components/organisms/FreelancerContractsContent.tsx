@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Button from "@/components/atoms/Button";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
 
 type ContractStatus = "Active" | "Review" | "Completed";
 
@@ -16,6 +16,7 @@ type Contract = {
   clientId?: string;
   freelancerId?: string;
   jobId?: string;
+  contractType?: "Fixed Price" | "Hourly";
   status: ContractStatus;
   budget: string;
   progress: number;
@@ -23,10 +24,17 @@ type Contract = {
   startDate: string;
   dueDate: string;
   description: string;
+  scopeItems?: string[];
+  milestones?: Array<{
+    name: string;
+    amount: string;
+    deadline: string;
+    status: "Pending" | "In Progress" | "Approved";
+  }>;
 };
 
 const formatDate = (value: any) => {
-  if (!value) return "—";
+  if (!value) return "-";
   if (typeof value === "string") return value;
   const date = value?.seconds ? new Date(value.seconds * 1000) : new Date(value);
   return date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
@@ -44,6 +52,104 @@ export default function FreelancerContractsContent() {
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
+  const clientNameCache = useRef<Record<string, string>>({});
+  const clientAvatarCache = useRef<Record<string, string>>({});
+  const freelancerAvatarCache = useRef<Record<string, string>>({});
+
+  const resolveClientName = async (clientId: string, fallbackName: string) => {
+    const initialFallback = fallbackName?.trim() || "";
+    if (!clientId) return initialFallback || "Client";
+    if (clientNameCache.current[clientId]) return clientNameCache.current[clientId];
+
+    let resolvedName = initialFallback;
+
+    try {
+      const clientDocSnap = await getDoc(doc(firebaseDb, "clients", clientId));
+      if (clientDocSnap.exists()) {
+        const data = clientDocSnap.data() as any;
+        resolvedName = data.fullName ?? data.firstName ?? data.name ?? resolvedName;
+      }
+    } catch {
+      // Continue with UID-based lookup.
+    }
+
+    if (!resolvedName) {
+      try {
+        const clientsByUidQuery = query(
+          collection(firebaseDb, "clients"),
+          where("uid", "==", clientId),
+          limit(1)
+        );
+        const clientsByUidSnap = await getDocs(clientsByUidQuery);
+        if (!clientsByUidSnap.empty) {
+          const data = clientsByUidSnap.docs[0].data() as any;
+          resolvedName = data.fullName ?? data.firstName ?? data.name ?? resolvedName;
+        }
+      } catch {
+        // Continue with all_users fallback.
+      }
+    }
+
+    if (!resolvedName) {
+      try {
+        const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
+        if (allUsersSnap.exists()) {
+          const data = allUsersSnap.data() as any;
+          resolvedName = data.fullName ?? data.name ?? data.email ?? resolvedName;
+        }
+      } catch {
+        // Keep fallback below.
+      }
+    }
+
+    const finalName = resolvedName || "Client";
+    clientNameCache.current[clientId] = finalName;
+    return finalName;
+  };
+
+  const resolveClientAvatar = async (clientId: string) => {
+    if (!clientId) return "";
+    if (clientAvatarCache.current[clientId] !== undefined) return clientAvatarCache.current[clientId];
+
+    let avatarUrl = "";
+    try {
+      const [clientSnap, allUsersSnap] = await Promise.all([
+        getDoc(doc(firebaseDb, "clients", clientId)),
+        getDoc(doc(firebaseDb, "all_users", clientId)),
+      ]);
+      const c = clientSnap.exists() ? (clientSnap.data() as any) : {};
+      const a = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+      avatarUrl = c.avatarUrl ?? a.avatarUrl ?? "";
+    } catch {
+      avatarUrl = "";
+    }
+
+    clientAvatarCache.current[clientId] = avatarUrl;
+    return avatarUrl;
+  };
+
+  const resolveFreelancerAvatar = async (freelancerId: string) => {
+    if (!freelancerId) return "";
+    if (freelancerAvatarCache.current[freelancerId] !== undefined) {
+      return freelancerAvatarCache.current[freelancerId];
+    }
+
+    let avatarUrl = "";
+    try {
+      const [freelancerSnap, allUsersSnap] = await Promise.all([
+        getDoc(doc(firebaseDb, "freelancers", freelancerId)),
+        getDoc(doc(firebaseDb, "all_users", freelancerId)),
+      ]);
+      const f = freelancerSnap.exists() ? (freelancerSnap.data() as any) : {};
+      const a = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+      avatarUrl = f.avatarUrl ?? a.avatarUrl ?? "";
+    } catch {
+      avatarUrl = "";
+    }
+
+    freelancerAvatarCache.current[freelancerId] = avatarUrl;
+    return avatarUrl;
+  };
 
   useEffect(() => {
     let unsubscribeContracts: (() => void) | undefined;
@@ -70,22 +176,37 @@ export default function FreelancerContractsContent() {
             return {
               id: docSnap.id,
               title: data.title ?? "Contract",
-              clientName: data.clientName ?? "Client",
+              clientName: data.clientName ?? "",
               clientId: data.clientId ?? "",
               freelancerId: data.freelancerId ?? "",
               jobId: data.jobId ?? "",
+              contractType: data.contractType ?? data.jobType ?? "Fixed Price",
               status: (data.status as ContractStatus) ?? "Active",
               budget: formatSats(data.budget ?? "0"),
               progress: typeof data.progress === "number" ? data.progress : 0,
-              nextMilestone: data.nextMilestone ?? "—",
+              nextMilestone: data.nextMilestone ?? "-",
               startDate: formatDate(data.startDate),
               dueDate: formatDate(data.dueDate),
-              description: data.description ?? "—",
+              description: data.description ?? "-",
+              scopeItems: Array.isArray(data.scopeItems) ? data.scopeItems : [],
+              milestones: Array.isArray(data.milestones) ? data.milestones : [],
             };
           });
-          setContracts(items);
-          setLoading(false);
-          if (!selectedId && items.length) setSelectedId(items[0].id);
+          const hydrateClientNames = async () => {
+            const hydrated = await Promise.all(
+              items.map(async (contract) => ({
+                ...contract,
+                clientName: await resolveClientName(
+                  contract.clientId ?? "",
+                  contract.clientName ?? ""
+                ),
+              }))
+            );
+            setContracts(hydrated);
+            setLoading(false);
+            if (!selectedId && hydrated.length) setSelectedId(hydrated[0].id);
+          };
+          hydrateClientNames();
         },
         () => {
           setLoading(false);
@@ -245,6 +366,120 @@ export default function FreelancerContractsContent() {
               {selectedContract.description}
             </div>
 
+            <div className="mt-5 rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8C4F00]">
+                Contract Overview
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 text-[11px] text-[#6b6762]">
+                <div className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Project</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.title}</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Client</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.clientName}</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Contract Type</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">
+                    {selectedContract.contractType ?? "Fixed Price"}
+                  </div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Status</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.status}</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Start Date</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.startDate}</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Budget</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.budget}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[12px] border border-[#EAE7E2] bg-white p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8C4F00]">
+                Scope Of Work
+              </div>
+              {selectedContract.scopeItems?.length ? (
+                <ul className="mt-3 grid grid-cols-1 gap-2 text-[12px] text-[#6b6762]">
+                  {selectedContract.scopeItems.map((item) => (
+                    <li key={item} className="flex items-start gap-2">
+                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[#F7931A]" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-[12px] text-[#6b6762]">
+                  Define the deliverables and features for this contract.
+                </p>
+              )}
+            </div>
+
+            {selectedContract.contractType === "Fixed Price" ? (
+              <div className="mt-5 rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8C4F00]">
+                  Milestones
+                </div>
+                {selectedContract.milestones?.length ? (
+                  <div className="mt-3 space-y-3">
+                    {selectedContract.milestones.map((milestone) => (
+                      <div
+                        key={milestone.name}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2 text-[11px]"
+                      >
+                        <div>
+                          <div className="font-semibold text-[#1a1a1a]">{milestone.name}</div>
+                          <div className="text-[#9e9690]">{milestone.deadline}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-[#8C4F00]">{milestone.amount}</div>
+                          <div className="text-[10px] uppercase tracking-[0.12em] text-[#6b6762]">
+                            {milestone.status}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-[12px] text-[#6b6762]">
+                    Milestones will appear here once defined.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
+            <div className="mt-5 rounded-[12px] border border-[#EAE7E2] bg-white p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8C4F00]">
+                Payment Details
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 text-[11px] text-[#6b6762]">
+                <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Total Value</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.budget}</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Paid</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">0 sats</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Escrow</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">0 sats</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Pending</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">0 sats</div>
+                </div>
+              </div>
+              <p className="mt-3 text-[11px] text-[#9e9690]">
+                Payments are placeholders until escrow is implemented.
+              </p>
+            </div>
+
             <div className="mt-5 grid grid-cols-2 gap-3 text-[11px] text-[#6b6762]">
               <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
                 <div className="uppercase tracking-[0.12em] text-[#9e9690]">Budget</div>
@@ -286,7 +521,14 @@ export default function FreelancerContractsContent() {
                     firebaseAuth.currentUser?.uid ?? selectedContract.freelancerId ?? "";
                   if (!freelancerId) return;
                   let freelancerName = "Freelancer";
-                  let clientName = selectedContract.clientName ?? "Client";
+                  let clientName = await resolveClientName(
+                    clientId,
+                    selectedContract.clientName ?? ""
+                  );
+                  const [clientAvatarUrl, freelancerAvatarUrl] = await Promise.all([
+                    resolveClientAvatar(clientId),
+                    resolveFreelancerAvatar(freelancerId),
+                  ]);
                   try {
                     const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", freelancerId));
                     if (allUsersSnap.exists()) {
@@ -296,17 +538,7 @@ export default function FreelancerContractsContent() {
                   } catch {
                     freelancerName = "Freelancer";
                   }
-                  if (!clientName || clientName === "Client") {
-                    try {
-                      const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
-                      if (allUsersSnap.exists()) {
-                        const d = allUsersSnap.data() as any;
-                        clientName = d.fullName ?? d.name ?? d.email ?? "Client";
-                      }
-                    } catch {
-                      clientName = "Client";
-                    }
-                  }
+                  if (!clientName) clientName = "Client";
                   const conversationId = createConversationId(
                     selectedContract.jobId,
                     selectedContract.freelancerId
@@ -321,6 +553,8 @@ export default function FreelancerContractsContent() {
                       clientName,
                       freelancerId: selectedContract.freelancerId,
                       freelancerName,
+                      clientAvatarUrl,
+                      freelancerAvatarUrl,
                       createdBy: "system",
                       canFreelancerMessage: true,
                       unread: {
@@ -344,3 +578,4 @@ export default function FreelancerContractsContent() {
     </section>
   );
 }
+

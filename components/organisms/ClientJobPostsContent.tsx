@@ -1,4 +1,4 @@
- "use client";
+"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -170,7 +170,7 @@ export default function ClientJobPostsContent() {
             freelancerId: data.freelancerId ?? "",
             name: data.freelancerName ?? "Freelancer",
             title: data.freelancerTitle ?? "Professional",
-            rate: data.rate ?? "—",
+            rate: data.rate ?? "-",
             cover: data.cover ?? "",
             rating: typeof data.rating === "number" ? data.rating : 5,
             availability: data.availability ?? "Available",
@@ -216,6 +216,42 @@ export default function ClientJobPostsContent() {
 
   const editJob = jobs.find((job) => job.id === editJobId) ?? null;
   const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
+  const resolveClientIdentity = async (uid: string) => {
+    try {
+      const [clientSnap, allUsersSnap] = await Promise.all([
+        getDoc(doc(firebaseDb, "clients", uid)),
+        getDoc(doc(firebaseDb, "all_users", uid)),
+      ]);
+      const c = clientSnap.exists() ? (clientSnap.data() as any) : {};
+      const a = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+      const composed = `${c.firstName ?? a.firstName ?? ""} ${c.lastName ?? a.lastName ?? ""}`.trim();
+      const resolvedName = c.fullName ?? a.fullName ?? c.name ?? a.name ?? a.email ?? composed;
+      return {
+        name: resolvedName || "Client",
+        avatarUrl: c.avatarUrl ?? a.avatarUrl ?? "",
+      };
+    } catch {
+      return { name: "Client", avatarUrl: "" };
+    }
+  };
+  const resolveFreelancerIdentity = async (uid: string, fallbackName: string) => {
+    try {
+      const [freelancerSnap, allUsersSnap] = await Promise.all([
+        getDoc(doc(firebaseDb, "freelancers", uid)),
+        getDoc(doc(firebaseDb, "all_users", uid)),
+      ]);
+      const f = freelancerSnap.exists() ? (freelancerSnap.data() as any) : {};
+      const a = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+      const composed = `${f.firstName ?? a.firstName ?? ""} ${f.lastName ?? a.lastName ?? ""}`.trim();
+      const resolvedName = f.fullName ?? a.fullName ?? fallbackName ?? composed;
+      return {
+        name: resolvedName || "Freelancer",
+        avatarUrl: f.avatarUrl ?? a.avatarUrl ?? "",
+      };
+    } catch {
+      return { name: fallbackName || "Freelancer", avatarUrl: "" };
+    }
+  };
 
   useEffect(() => {
     if (!editJob) return;
@@ -367,7 +403,7 @@ export default function ClientJobPostsContent() {
                   {selectedJob.title}
                 </div>
                 <div className="mt-1 text-[12px] text-[#9e9690]">
-                  {selectedJob.status} • {formatBudget(selectedJob.budget)} • {selectedJob.proposals} proposals
+                  {selectedJob.status} | {formatBudget(selectedJob.budget)} | {selectedJob.proposals} proposals
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedJob.tags.map((tag) => (
@@ -424,16 +460,10 @@ export default function ClientJobPostsContent() {
                       if (!selectedJob?.id) return;
                       const clientId = firebaseAuth.currentUser?.uid ?? "";
                       if (!clientId) return;
-                      let clientName = "Client";
-                      try {
-                        const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
-                        if (allUsersSnap.exists()) {
-                          const d = allUsersSnap.data() as any;
-                          clientName = d.fullName ?? d.name ?? d.email ?? "Client";
-                        }
-                      } catch {
-                        clientName = "Client";
-                      }
+                      const [clientIdentity, freelancerIdentity] = await Promise.all([
+                        resolveClientIdentity(clientId),
+                        resolveFreelancerIdentity(proposal.freelancerId, proposal.name),
+                      ]);
                       const conversationId = createConversationId(selectedJob.id, proposal.freelancerId);
                       await setDoc(
                         doc(firebaseDb, "conversations", conversationId),
@@ -442,9 +472,11 @@ export default function ClientJobPostsContent() {
                           jobTitle: selectedJob.title,
                           proposalId: proposal.id,
                           clientId,
-                          clientName,
+                          clientName: clientIdentity.name,
                           freelancerId: proposal.freelancerId,
-                          freelancerName: proposal.name,
+                          freelancerName: freelancerIdentity.name,
+                          clientAvatarUrl: clientIdentity.avatarUrl,
+                          freelancerAvatarUrl: freelancerIdentity.avatarUrl,
                           createdBy: "client",
                           canFreelancerMessage: true,
                           unread: {
@@ -480,18 +512,18 @@ export default function ClientJobPostsContent() {
                   const freelancerIds = selected.map((p) => p.freelancerId);
                   const freelancerNames = selected.map((p) => p.name);
                   const clientId = firebaseAuth.currentUser?.uid ?? "";
-                  let clientName = "Client";
-                  if (clientId) {
-                    try {
-                      const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", clientId));
-                      if (allUsersSnap.exists()) {
-                        const d = allUsersSnap.data() as any;
-                        clientName = d.fullName ?? d.name ?? d.email ?? "Client";
-                      }
-                    } catch {
-                      clientName = "Client";
-                    }
-                  }
+                  const clientIdentity = clientId
+                    ? await resolveClientIdentity(clientId)
+                    : { name: "Client", avatarUrl: "" };
+                  const freelancerIdentityMap = new Map<string, { name: string; avatarUrl: string }>();
+                  await Promise.all(
+                    selected.map(async (proposal) => {
+                      freelancerIdentityMap.set(
+                        proposal.freelancerId,
+                        await resolveFreelancerIdentity(proposal.freelancerId, proposal.name)
+                      );
+                    })
+                  );
                   selected.forEach((proposal) => {
                     const proposalRef = doc(firebaseDb, "proposals", proposal.id);
                     batch.update(proposalRef, { status: "accepted", updatedAt: serverTimestamp() });
@@ -511,6 +543,8 @@ export default function ClientJobPostsContent() {
                         progress: 0,
                         nextMilestone: "Kickoff & onboarding",
                         startDate: serverTimestamp(),
+                        unreadByClient: false,
+                        unreadByFreelancer: true,
                         createdAt: serverTimestamp(),
                         updatedAt: serverTimestamp(),
                       },
@@ -526,9 +560,13 @@ export default function ClientJobPostsContent() {
                         jobTitle: selectedJob.title,
                         proposalId: proposal.id,
                         clientId,
-                        clientName,
+                        clientName: clientIdentity.name,
                         freelancerId: proposal.freelancerId,
-                        freelancerName: proposal.name,
+                        freelancerName:
+                          freelancerIdentityMap.get(proposal.freelancerId)?.name ?? proposal.name,
+                        clientAvatarUrl: clientIdentity.avatarUrl,
+                        freelancerAvatarUrl:
+                          freelancerIdentityMap.get(proposal.freelancerId)?.avatarUrl ?? "",
                         createdBy: "system",
                         canFreelancerMessage: true,
                         unread: {
@@ -673,7 +711,7 @@ export default function ClientJobPostsContent() {
                             className="text-[#9e9690] hover:text-[#1a1a1a]"
                             aria-label={`Remove ${skill}`}
                           >
-                            ×
+                            x
                           </button>
                         </span>
                       ))}
@@ -888,7 +926,7 @@ if (!editDescription.trim() || editDescription.trim().length < 20) {
                             className="text-[#9e9690] hover:text-[#1a1a1a]"
                             aria-label={`Remove ${skill}`}
                           >
-                            ×
+                            x
                           </button>
                         </span>
                       ))}

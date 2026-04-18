@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import Button from "@/components/atoms/Button";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
@@ -18,6 +18,8 @@ type ClientProfile = {
   industry: string;
   teamSize: string;
   about: string;
+  avatarUrl?: string;
+  avatarPublicId?: string;
 };
 
 const EMPTY_PROFILE: ClientProfile = {
@@ -33,6 +35,8 @@ const EMPTY_PROFILE: ClientProfile = {
   industry: "",
   teamSize: "",
   about: "",
+  avatarUrl: "",
+  avatarPublicId: "",
 };
 
 export default function ClientProfileContent() {
@@ -41,6 +45,7 @@ export default function ClientProfileContent() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => {
     const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
@@ -74,6 +79,8 @@ export default function ClientProfileContent() {
           about:
             clientData.about ??
             "Tell freelancers about your company, goals, and how you like to collaborate.",
+          avatarUrl: clientData.avatarUrl ?? allData.avatarUrl ?? "",
+          avatarPublicId: clientData.avatarPublicId ?? allData.avatarPublicId ?? "",
         });
       } catch {
         setErrorMessage("Unable to load your profile right now.");
@@ -124,12 +131,86 @@ export default function ClientProfileContent() {
         industry: profile.industry.trim(),
         teamSize: profile.teamSize.trim(),
         about: profile.about.trim(),
+        avatarUrl: profile.avatarUrl ?? "",
+        avatarPublicId: profile.avatarPublicId ?? "",
         updatedAt: serverTimestamp(),
       });
       setProfile((prev) => ({ ...prev, fullName }));
       setIsEditing(false);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleClientAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      setErrorMessage("Use JPG, PNG, or WEBP for avatar.");
+      event.target.value = "";
+      return;
+    }
+
+    const maxBytes = 2 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setErrorMessage("Avatar image must be 2MB or less.");
+      event.target.value = "";
+      return;
+    }
+
+    const user = firebaseAuth.currentUser;
+    if (!user) {
+      setErrorMessage("Please log in again to upload avatar.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      setErrorMessage("");
+      setAvatarUploading(true);
+      const idToken = await user.getIdToken();
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const uploadResponse = await fetch("/api/avatar/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: formData,
+      });
+      const uploadPayload = (await uploadResponse.json()) as {
+        avatarUrl?: string;
+        avatarPublicId?: string;
+        error?: string;
+      };
+
+      if (!uploadResponse.ok || !uploadPayload.avatarUrl || !uploadPayload.avatarPublicId) {
+        throw new Error(uploadPayload.error || "Avatar upload failed.");
+      }
+
+      const avatarFields = {
+        avatarUrl: uploadPayload.avatarUrl,
+        avatarPublicId: uploadPayload.avatarPublicId,
+        updatedAt: serverTimestamp(),
+      };
+
+      await Promise.all([
+        updateDoc(doc(firebaseDb, "clients", user.uid), avatarFields),
+        updateDoc(doc(firebaseDb, "all_users", user.uid), avatarFields),
+      ]);
+
+      setProfile((prev) => ({
+        ...prev,
+        avatarUrl: uploadPayload.avatarUrl ?? "",
+        avatarPublicId: uploadPayload.avatarPublicId ?? "",
+      }));
+    } catch (error) {
+      console.error("Client avatar upload failed:", error);
+      setErrorMessage("Could not upload avatar. Please retry.");
+    } finally {
+      setAvatarUploading(false);
+      event.target.value = "";
     }
   };
 
@@ -154,9 +235,25 @@ export default function ClientProfileContent() {
       <div className="rounded-[16px] border border-[#EAE7E2] bg-white p-6 shadow-[0_8px_22px_rgba(0,0,0,0.05)]">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-full bg-[#F6EFE6] flex items-center justify-center text-[#8C4F00] font-bold text-lg border border-[#EAE7E2]">
-              {initials || "CL"}
-            </div>
+            <label className="group relative h-16 w-16 cursor-pointer overflow-hidden rounded-full border border-[#EAE7E2] bg-[#F6EFE6]">
+              {profile.avatarUrl ? (
+                <img src={profile.avatarUrl} alt={displayName} className="h-full w-full object-cover" />
+              ) : (
+                <div className="h-full w-full flex items-center justify-center text-[#8C4F00] font-bold text-lg">
+                  {initials || "CL"}
+                </div>
+              )}
+              <span className="absolute inset-0 hidden items-center justify-center bg-black/40 text-[10px] font-semibold uppercase tracking-[0.06em] text-white group-hover:flex">
+                {avatarUploading ? "Uploading..." : "Change"}
+              </span>
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={handleClientAvatarUpload}
+                disabled={avatarUploading}
+              />
+            </label>
             <div>
               <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8C4F00]">
                 Client Profile
@@ -334,7 +431,7 @@ function Field({
         />
       ) : (
         <div className="rounded-lg border border-[#EFECE7] bg-white px-3 py-2 text-[12px] text-[#1a1a1a]">
-          {value || "—"}
+          {value || "-"}
         </div>
       )}
     </div>

@@ -193,7 +193,7 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { 
   CircleDollarSign, 
   Briefcase, 
@@ -206,17 +206,10 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { firebaseAuth, firebaseDb } from '@/lib/firebase';
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
-
-const USER_STATS = {
-  totalEarnings: "2.45 BTC",
-  earningsTrend: "+12.5%",
-  activeGigs: "8",
-  successRate: "98.2%",
-  profileCompletion: 85
-};
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 
 export default function OverviewContent() {
+  const [displayName, setDisplayName] = useState('Freelancer');
   const [recentApplications, setRecentApplications] = useState<
     Array<{ id: string; project: string; client: string; amount: string; status: string; date: string }>
   >([]);
@@ -224,6 +217,16 @@ export default function OverviewContent() {
   useEffect(() => {
     const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
       if (!user) return;
+      const loadProfile = async () => {
+        try {
+          const snap = await getDoc(doc(firebaseDb, 'all_users', user.uid));
+          const data = snap.exists() ? (snap.data() as any) : null;
+          setDisplayName(data?.fullName ?? user.displayName ?? 'Freelancer');
+        } catch {
+          setDisplayName(user.displayName ?? 'Freelancer');
+        }
+      };
+      loadProfile();
       const proposalsQuery = query(
         collection(firebaseDb, 'proposals'),
         where('freelancerId', '==', user.uid)
@@ -254,6 +257,16 @@ export default function OverviewContent() {
     return () => unsubscribeAuth();
   }, []);
 
+  const proposalsCount = recentApplications.length;
+  const pendingCount = useMemo(
+    () => recentApplications.filter((app) => app.status === 'Pending').length,
+    [recentApplications]
+  );
+  const approvedCount = useMemo(
+    () => recentApplications.filter((app) => app.status === 'Approved').length,
+    [recentApplications]
+  );
+
   return (
     <section className="bg-[#FCF9F7] py-16">
       <div className="mx-auto w-full max-w-7xl px-6 lg:px-8">
@@ -265,11 +278,16 @@ export default function OverviewContent() {
               <div className="p-2 bg-[#F7931A]/10 rounded-xl">
                 <Rocket className="w-6 h-6 text-[#F7931A]" />
               </div>
-              <h1 className="text-3xl font-extrabold text-[#1a1a1a] tracking-tight">Welcome, Satoshi!</h1>
+              <h1 className="text-3xl font-extrabold text-[#1a1a1a] tracking-tight">
+                Welcome, {displayName}!
+              </h1>
             </div>
             <p className="text-[#6b6560] text-sm md:text-base font-medium">Ready to stack some more sats today?</p>
           </div>
-          <button className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group">
+          <button
+            onClick={() => (window.location.href = "/freelancer/dashboard/job-feed")}
+            className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] text-white px-8 py-4 rounded-2xl font-bold text-sm hover:shadow-[0_8px_20px_-6px_rgba(249,115,22,0.6)] transition-all active:scale-95 group"
+          >
             <Plus className="w-4 h-4 group-hover:rotate-90 transition-transform duration-300" />
             Find New Gigs
           </button>
@@ -279,26 +297,23 @@ export default function OverviewContent() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
           <StatCard 
             title="Total Earnings" 
-            value={USER_STATS.totalEarnings} 
-            subtext={USER_STATS.earningsTrend} 
+            value="0 sats" 
+            sub="Tracking soon" 
             icon={<CircleDollarSign className="w-6 h-6" />}
-            trend="up"
             variant="orange"
           />
           <StatCard 
-            title="Ongoing Gigs" 
-            value={USER_STATS.activeGigs} 
-            subtext="2 active today" 
+            title="Pending Proposals" 
+            value={`${pendingCount}`} 
+            sub="Awaiting response" 
             icon={<Briefcase className="w-6 h-6" />}
-            trend="neutral"
             variant="white"
           />
           <StatCard 
-            title="Reputation" 
-            value={USER_STATS.successRate} 
-            subtext="Top Rated Plus" 
+            title="Proposals Sent" 
+            value={`${proposalsCount}`} 
+            sub={`${approvedCount} approved`} 
             icon={<Trophy className="w-6 h-6" />}
-            trend="up"
             variant="white"
           />
         </div>

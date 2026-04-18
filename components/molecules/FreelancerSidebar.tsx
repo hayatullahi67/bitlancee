@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, doc, getDoc, onSnapshot, query, where } from 'firebase/firestore';
 import { firebaseAuth, firebaseDb } from '@/lib/firebase';
 
 interface SidebarItem {
@@ -97,21 +97,91 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
   const [isOpen, setIsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [displayName, setDisplayName] = useState('Freelancer');
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [hasUnreadContracts, setHasUnreadContracts] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
     const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
-      if (!user) return;
+      if (!user) {
+        setDisplayName('Freelancer');
+        setAvatarUrl(null);
+        setAvatarLoadFailed(false);
+        return;
+      }
       try {
-        const snap = await getDoc(doc(firebaseDb, 'all_users', user.uid));
-        const data = snap.exists() ? (snap.data() as any) : null;
-        const fullName = data?.fullName ?? user.displayName ?? 'Freelancer';
+        const [freelancerSnap, allUsersSnap] = await Promise.all([
+          getDoc(doc(firebaseDb, 'freelancers', user.uid)),
+          getDoc(doc(firebaseDb, 'all_users', user.uid)),
+        ]);
+
+        const freelancerData = freelancerSnap.exists() ? (freelancerSnap.data() as any) : null;
+        const allUsersData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : null;
+
+        const freelancerName = `${freelancerData?.firstName ?? ''} ${freelancerData?.lastName ?? ''}`.trim();
+        const allUsersName = `${allUsersData?.firstName ?? ''} ${allUsersData?.lastName ?? ''}`.trim();
+        const fullName =
+          freelancerData?.fullName ||
+          freelancerName ||
+          allUsersData?.fullName ||
+          allUsersName ||
+          user.displayName ||
+          'Freelancer';
+        const nextAvatarUrl = freelancerData?.avatarUrl ?? allUsersData?.avatarUrl ?? null;
+
         setDisplayName(fullName);
+        setAvatarUrl(nextAvatarUrl);
+        setAvatarLoadFailed(false);
       } catch {
         setDisplayName(user.displayName ?? 'Freelancer');
+        setAvatarUrl(null);
+        setAvatarLoadFailed(false);
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    let unsubscribeMessages: (() => void) | undefined;
+    let unsubscribeContracts: (() => void) | undefined;
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) {
+        setHasUnreadMessages(false);
+        setHasUnreadContracts(false);
+        if (unsubscribeMessages) unsubscribeMessages();
+        if (unsubscribeContracts) unsubscribeContracts();
+        return;
+      }
+
+      const conversationsQuery = query(
+        collection(firebaseDb, 'conversations'),
+        where('freelancerId', '==', user.uid)
+      );
+      unsubscribeMessages = onSnapshot(conversationsQuery, (snapshot) => {
+        const hasUnread = snapshot.docs.some((docSnap) => {
+          const data = docSnap.data() as any;
+          return (data.unread?.[user.uid] ?? 0) > 0;
+        });
+        setHasUnreadMessages(hasUnread);
+      });
+
+      const contractsQuery = query(
+        collection(firebaseDb, 'contracts'),
+        where('freelancerId', '==', user.uid),
+        where('unreadByFreelancer', '==', true)
+      );
+      unsubscribeContracts = onSnapshot(contractsQuery, (snapshot) => {
+        setHasUnreadContracts(!snapshot.empty);
+      });
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeMessages) unsubscribeMessages();
+      if (unsubscribeContracts) unsubscribeContracts();
+    };
   }, []);
 
   const initials = displayName
@@ -173,25 +243,27 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
         {/* Avatar + Name + Badge */}
         <Link href="/freelancer/dashboard/profile" onClick={() => setIsOpen(false)} className="flex flex-col items-start gap-0.5 mb-10 px-1">
           <div className="w-14 h-14 rounded-full bg-[#e8dfd4] flex items-center justify-center mb-3 overflow-hidden border-2 border-white shadow-md">
-            <img
-              src="/assets/avatar.png"
-              alt="Freelancer avatar"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.style.display = 'none';
-                target.parentElement!.innerHTML = `<div style="font-weight:700;color:#8C4F00;">${initials}</div>`;
-              }}
-            />
+            {avatarUrl && !avatarLoadFailed ? (
+              <img
+                src={avatarUrl}
+                alt="Freelancer avatar"
+                className="w-full h-full object-cover"
+                onError={() => setAvatarLoadFailed(true)}
+              />
+            ) : (
+              <div className="font-bold text-[#8C4F00]">{initials}</div>
+            )}
           </div>
           <h3 className="text-base font-black text-[#1a1a1a] leading-tight">{displayName}</h3>
-          <p className="text-[11px] font-black text-orange-600 uppercase tracking-widest">Top Rated</p>
         </Link>
 
         {/* Navigation */}
         <nav className="flex flex-col gap-1.5 flex-1">
           {SIDEBAR_ITEMS.map((item) => {
             const isActive = active === item.href;
+            const showDot =
+              (item.label === 'Messages' && hasUnreadMessages) ||
+              (item.label === 'Contracts' && hasUnreadContracts);
             return (
               <Link
                 key={item.href}
@@ -205,7 +277,12 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
                 <span className={isActive ? 'text-orange-500' : 'text-[#9e9690]'}>
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="flex items-center gap-2">
+                  {item.label}
+                  {showDot ? (
+                    <span className="inline-flex h-2 w-2 rounded-full bg-[#F7931A]" />
+                  ) : null}
+                </span>
               </Link>
             );
           })}

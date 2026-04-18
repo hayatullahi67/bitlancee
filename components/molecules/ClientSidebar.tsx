@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 
 interface SidebarItem {
@@ -110,6 +110,8 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
   const [isOpen, setIsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [displayName, setDisplayName] = useState("Client");
+  const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+  const [hasUnreadContracts, setHasUnreadContracts] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -125,6 +127,47 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
       }
     });
     return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    let unsubscribeMessages: (() => void) | undefined;
+    let unsubscribeContracts: (() => void) | undefined;
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) {
+        setHasUnreadMessages(false);
+        setHasUnreadContracts(false);
+        if (unsubscribeMessages) unsubscribeMessages();
+        if (unsubscribeContracts) unsubscribeContracts();
+        return;
+      }
+
+      const conversationsQuery = query(
+        collection(firebaseDb, "conversations"),
+        where("clientId", "==", user.uid)
+      );
+      unsubscribeMessages = onSnapshot(conversationsQuery, (snapshot) => {
+        const hasUnread = snapshot.docs.some((docSnap) => {
+          const data = docSnap.data() as any;
+          return (data.unread?.[user.uid] ?? 0) > 0;
+        });
+        setHasUnreadMessages(hasUnread);
+      });
+
+      const contractsQuery = query(
+        collection(firebaseDb, "contracts"),
+        where("clientId", "==", user.uid),
+        where("unreadByClient", "==", true)
+      );
+      unsubscribeContracts = onSnapshot(contractsQuery, (snapshot) => {
+        setHasUnreadContracts(!snapshot.empty);
+      });
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeMessages) unsubscribeMessages();
+      if (unsubscribeContracts) unsubscribeContracts();
+    };
   }, []);
 
   const initials = displayName
@@ -204,6 +247,9 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
         <nav className="flex flex-col gap-1.5 flex-1">
           {CLIENT_SIDEBAR_ITEMS.map((item) => {
             const isActive = active === item.href;
+            const showDot =
+              (item.label === "Messages" && hasUnreadMessages) ||
+              (item.label === "Contracts" && hasUnreadContracts);
             return (
               <Link
                 key={item.href}
@@ -216,7 +262,12 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
                 <span className={isActive ? "text-orange-500" : "text-[#9e9690]"}>
                   {item.icon}
                 </span>
-                {item.label}
+                <span className="flex items-center gap-2">
+                  {item.label}
+                  {showDot ? (
+                    <span className="inline-flex h-2 w-2 rounded-full bg-[#F7931A]" />
+                  ) : null}
+                </span>
               </Link>
             );
           })}

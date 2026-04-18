@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { firebaseAuth } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
-import { firebaseDb } from "@/lib/firebase";
+import { doc, getDoc, serverTimestamp, setDoc, updateDoc } from "firebase/firestore";
+import { firebaseDb, firebaseRtdb } from "@/lib/firebase";
+import { ref, onValue, onDisconnect, set as rtdbSet, serverTimestamp as rtdbServerTimestamp } from "firebase/database";
 
 type AuthGuardProps = {
   children: React.ReactNode;
@@ -20,19 +21,32 @@ export default function AuthGuard({
   const router = useRouter();
   const [checking, setChecking] = useState(true);
   const [allowed, setAllowed] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const presenceListener = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
       const run = async () => {
         if (!user) {
+          setCurrentUserId(null);
           setAllowed(false);
           setChecking(false);
           router.replace(redirectTo);
           return;
         }
+        setCurrentUserId(user.uid);
         if (!allowedRole) {
           setAllowed(true);
           setChecking(false);
+          try {
+            await setDoc(
+              doc(firebaseDb, "all_users", user.uid),
+              { online: true, lastSeen: serverTimestamp() },
+              { merge: true }
+            );
+          } catch {
+            // ignore
+          }
           return;
         }
         try {
@@ -41,6 +55,15 @@ export default function AuthGuard({
           if (role === allowedRole) {
             setAllowed(true);
             setChecking(false);
+            try {
+              await setDoc(
+                doc(firebaseDb, "all_users", user.uid),
+                { online: true, lastSeen: serverTimestamp() },
+                { merge: true }
+              );
+            } catch {
+              // ignore
+            }
             return;
           }
           setAllowed(false);
@@ -62,6 +85,73 @@ export default function AuthGuard({
     });
     return () => unsubscribe();
   }, [router, redirectTo, allowedRole]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    const setOnlineStatus = async (online: boolean) => {
+      try {
+        await updateDoc(doc(firebaseDb, "all_users", currentUserId), {
+          online,
+          lastSeen: serverTimestamp(),
+        });
+      } catch {
+        // ignore
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        setOnlineStatus(false);
+      } else {
+        setOnlineStatus(true);
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      setOnlineStatus(false);
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    document.addEventListener("visibilitychange", handleVisibility);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId) return;
+    const userStatusDatabaseRef = ref(firebaseRtdb, `/status/${currentUserId}`);
+    const isOfflineForDatabase = {
+      state: "offline",
+      last_changed: rtdbServerTimestamp(),
+    };
+    const isOnlineForDatabase = {
+      state: "online",
+      last_changed: rtdbServerTimestamp(),
+    };
+
+    if (presenceListener.current) {
+      presenceListener.current();
+      presenceListener.current = null;
+    }
+
+    const connectedRef = ref(firebaseRtdb, ".info/connected");
+    const unsubscribe = onValue(connectedRef, (snap) => {
+      if (snap.val() === false) return;
+      onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase);
+      rtdbSet(userStatusDatabaseRef, isOnlineForDatabase);
+    });
+    presenceListener.current = unsubscribe;
+
+    return () => {
+      if (presenceListener.current) {
+        presenceListener.current();
+        presenceListener.current = null;
+      }
+    };
+  }, [currentUserId]);
 
   if (checking) {
     return (
