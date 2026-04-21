@@ -377,7 +377,7 @@ export default function ClientProfileContent() {
             <Field
               label="Email"
               value={profile.email}
-              onChange={() => {}}
+              onChange={() => { }}
               isEditing={false}
               readOnly
             />

@@ -299,44 +299,40 @@ export default function ClientJobPostsContent() {
             <button
               type="button"
               onClick={() => setActiveTab("all")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                activeTab === "all"
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "all"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
-              }`}
+                }`}
             >
               All
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("active")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                activeTab === "active"
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "active"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
-              }`}
+                }`}
             >
               Active
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("review")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                activeTab === "review"
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "review"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
-              }`}
+                }`}
             >
               Ongoing
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("paused")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                activeTab === "paused"
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "paused"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
-              }`}
+                }`}
             >
               Paused
             </button>
@@ -728,15 +724,13 @@ export default function ClientJobPostsContent() {
                 <button
                   type="button"
                   onClick={() => setEditUrgent((v) => !v)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    editUrgent ? "bg-orange-500" : "bg-[#EAE7E2]"
-                  }`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${editUrgent ? "bg-orange-500" : "bg-[#EAE7E2]"
+                    }`}
                   aria-pressed={editUrgent}
                 >
                   <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                      editUrgent ? "translate-x-5" : "translate-x-1"
-                    }`}
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${editUrgent ? "translate-x-5" : "translate-x-1"
+                      }`}
                   />
                 </button>
               </div>
@@ -764,20 +758,20 @@ export default function ClientJobPostsContent() {
                 onClick={async () => {
                   if (!editJob?.id) return;
                   // if (!editTitle.trim() || !editBudget.trim() || !editDescription.trim()) return;
-                  
+
                   // WITH THIS:
-if (!editTitle.trim() || editTitle.trim().length < 3) {
-  alert("Please enter a job title (at least 3 characters).");
-  return;
-}
-if (!editBudget.trim()) {
-  alert("Please enter a budget.");
-  return;
-}
-if (!editDescription.trim() || editDescription.trim().length < 20) {
-  alert("Please write a description (at least 20 characters).");
-  return;
-}
+                  if (!editTitle.trim() || editTitle.trim().length < 3) {
+                    alert("Please enter a job title (at least 3 characters).");
+                    return;
+                  }
+                  if (!editBudget.trim()) {
+                    alert("Please enter a budget.");
+                    return;
+                  }
+                  if (!editDescription.trim() || editDescription.trim().length < 20) {
+                    alert("Please write a description (at least 20 characters).");
+                    return;
+                  }
                   setIsSavingEdit(true);
                   try {
                     await updateDoc(doc(firebaseDb, "jobs", editJob.id), {
@@ -945,15 +939,13 @@ if (!editDescription.trim() || editDescription.trim().length < 20) {
                 <button
                   type="button"
                   onClick={() => setPostUrgent((v) => !v)}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                    postUrgent ? "bg-orange-500" : "bg-[#EAE7E2]"
-                  }`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${postUrgent ? "bg-orange-500" : "bg-[#EAE7E2]"
+                    }`}
                   aria-pressed={postUrgent}
                 >
                   <span
-                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
-                      postUrgent ? "translate-x-5" : "translate-x-1"
-                    }`}
+                    className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${postUrgent ? "translate-x-5" : "translate-x-1"
+                      }`}
                   />
                 </button>
               </div>
@@ -972,18 +964,18 @@ if (!editDescription.trim() || editDescription.trim().length < 20) {
                   // }
 
                   // WITH THIS:
-if (!postTitle.trim() || postTitle.trim().length < 3) {
-  alert("Please enter a job title (at least 3 characters).");
-  return;
-}
-if (!postBudget.trim()) {
-  alert("Please enter a budget.");
-  return;
-}
-if (!postDescription.trim() || postDescription.trim().length < 20) {
-  alert("Please write a description (at least 20 characters).");
-  return;
-}
+                  if (!postTitle.trim() || postTitle.trim().length < 3) {
+                    alert("Please enter a job title (at least 3 characters).");
+                    return;
+                  }
+                  if (!postBudget.trim()) {
+                    alert("Please enter a budget.");
+                    return;
+                  }
+                  if (!postDescription.trim() || postDescription.trim().length < 20) {
+                    alert("Please write a description (at least 20 characters).");
+                    return;
+                  }
                   const user = firebaseAuth.currentUser;
                   if (!user) {
                     setJobsError("Please log in to publish a job.");

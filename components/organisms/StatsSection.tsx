@@ -17,10 +17,10 @@ const STATS = [
 
 export default function StatsSection() {
   return (
-    <section className="bg-[#F6F3F1] py-8 sm:py-10 lg:py-12">
+    <section className="bg-[#F6F3F1] py-8 sm:py-10 lg:pb-12">
       <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">
 
-        <div className="flex justify-center">
+        {/* <div className="flex justify-center">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 py-4 w-full sm:max-w-3xl lg:max-w-4xl">
             {SPONSORS.map((item) => (
               <div key={item.alt} className="flex items-center justify-center p-2 sm:p-3  ">
@@ -28,7 +28,7 @@ export default function StatsSection() {
               </div>
             ))}
           </div>
-        </div>
+        </div> */}
 
         <div className="mt-6 sm:mt-8 flex justify-center">
           <div className="grid gap-2 sm:gap-3 md:gap-4 lg:gap-5 grid-cols-3 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-3 w-full max-w-4xl">

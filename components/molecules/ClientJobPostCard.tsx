@@ -148,11 +148,10 @@ export default function ClientJobPostCard({
 
   return (
     <div
-      className={`w-full rounded-[12px] border bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)] transition-all ${
-        isSelected
+      className={`w-full rounded-[12px] border bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)] transition-all ${isSelected
           ? "border-[#F5A623] ring-1 ring-[#F5A623]/30"
           : "border-[#EAE7E2] hover:border-[#F2D8AA]"
-      }`}
+        }`}
       data-job-id={id}
     >
       <div className="flex items-start justify-between gap-3">

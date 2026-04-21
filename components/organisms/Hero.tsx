@@ -26,7 +26,7 @@ export default function Hero() {
         .font-inter { font-family: 'Inter', sans-serif; }
       `}</style>
 
-      <section className="font-inter bg-[#FCF9F7] min-h-screen sm:min-h-[700px] pt-[100px] sm:pt-[110px] lg:pt-[120px] pb-10 sm:pb-12 lg:pb-16 px-4 sm:px-6 lg:px-20">
+      <section className="font-inter bg-[#FCF9F7] min-h-screen sm:min-h-[600px] pt-[120px] sm:pt-[110px] lg:pt-[150px] pb-10 sm:pb-12 lg:pb-0 px-4 sm:px-6 lg:px-20">
         <div className="w-full max-w-7xl mx-auto flex flex-col lg:flex-row justify-between gap-8 lg:gap-12 items-center">
 
           {/* LEFT */}
@@ -43,11 +43,11 @@ export default function Hero() {
             </p>
 
             <div className="mt-6 flex flex-row flex-wrap items-center justify-start gap-2 sm:gap-3">
-              <button className="font-inter inline-flex items-center justify-center gap-2 bg-[#F7931A] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-2 sm:py-3 border-none cursor-pointer transition-all duration-200 hover:-translate-y-px shadow-sm min-w-[130px]">
+              <button className="font-inter inline-flex items-center justify-center gap-2 bg-[#F7931A] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-3 sm:py-3 border-none cursor-pointer transition-all duration-200 hover:-translate-y-px shadow-sm min-w-[130px]">
                 Find Work &nbsp;→
               </button>
 
-              <button className="font-inter inline-flex items-center justify-center bg-[#E5E2E0] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-2 sm:py-3 border border-[#ddd] hover:border-[#bbb] cursor-pointer transition-all duration-200 hover:-translate-y-px min-w-[130px]">
+              <button className="font-inter inline-flex items-center justify-center bg-[#E5E2E0] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-3 sm:py-3 border border-[#ddd] hover:border-[#bbb] cursor-pointer transition-all duration-200 hover:-translate-y-px min-w-[130px]">
                 Post a Job
               </button>
             </div>

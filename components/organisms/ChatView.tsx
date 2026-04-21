@@ -137,6 +137,7 @@ export default function ChatView({
         <input
           ref={fileInputRef}
           type="file"
+          accept="*"
           className="hidden"
           onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
         />
