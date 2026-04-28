@@ -74,19 +74,28 @@ export default function FindWork() {
         const items: FindWorkJob[] = snapshot.docs
           .map((docSnap) => {
             const data = docSnap.data() as any;
-            const category = data.category ?? '';
-            const type = data.jobType === 'Hourly' ? 'Hourly' : 'Fixed';
+            const category = typeof data.category === 'string' ? data.category : '';
+            const jobType: FindWorkJob['type'] = data.jobType === 'Hourly' ? 'Hourly' : 'Fixed';
+            const experience = typeof data.experienceLevel === 'string' ? data.experienceLevel : 'All';
+            const title = typeof data.title === 'string' ? data.title : 'Untitled Job';
+            const description =
+              typeof data.description === 'string'
+                ? data.description.replace(/\s{2,}/g, ' ').trim()
+                : '';
+            const tags = Array.isArray(data.skills)
+              ? data.skills.filter((skill: unknown): skill is string => typeof skill === 'string')
+              : [];
 
             return {
               id: docSnap.id,
               category,
-              experience: data.experienceLevel ?? 'All',
-              type,
+              experience,
+              type: jobType,
               icon: CATEGORY_ICONS[category] ?? '/assets/tech.png',
-              title: data.title ?? 'Untitled Job',
-              description: data.description?.replace(/\s{2,}/g, ' ').trim() ?? '',
-              price: formatBudgetLabel(data.budget ?? '', data.jobType ?? 'Fixed Price'),
-              tags: Array.isArray(data.skills) ? data.skills : [],
+              title,
+              description,
+              price: formatBudgetLabel(data.budget ?? '', jobType),
+              tags,
               createdAt: data.createdAt,
             };
           })
