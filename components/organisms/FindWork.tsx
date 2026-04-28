@@ -1,136 +1,113 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import SearchInput from '../atoms/SearchInput';
-import FilterButton from '../atoms/FilterButton';
+import { useEffect, useMemo, useState } from 'react';
+import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { firebaseDb } from '@/lib/firebase';
 import JobCard from '../atoms/JobCard';
 
-const CATEGORIES = ['Development', 'Design & Creative', 'Sales & Marketing', 'Finance', 'Writing', 'Admin'];
 const EXPERIENCE_LEVELS = ['All', 'Entry', 'Intermediate', 'Expert'];
 const JOB_TYPES = ['All', 'Fixed', 'Hourly'];
 
-const JOBS = [
-  {
-    id: 1,
-    category: 'Development',
-    experience: 'Expert',
-    type: 'Fixed',
-    icon: '/assets/dev.png',
-    title: 'LND Integration Expert for Retail Terminal',
-    description: 'Build Lightning integration for terminal fleet with offline fallback and security checks.',
-    price: '2.4M Sats',
-    tags: ['Lightning', 'Go', 'Remote'],
-    label: 'Urgent',
-    postedAt: '2 hours ago',
-  },
-  {
-    id: 2,
-    category: 'Design & Creative',
-    experience: 'Intermediate',
-    type: 'Fixed',
-    icon: '/assets/creative.png',
-    title: 'UI/UX Designer for Bitcoin Wallet App',
-    description: 'Design a clean, low-friction wallet experience for first-time BTC users.',
-    price: '850k Sats',
-    tags: ['Figma', 'UI/UX', 'Fintech'],
-    postedAt: '6 hours ago',
-  },
-  {
-    id: 3,
-    category: 'Development',
-    experience: 'Expert',
-    type: 'Hourly',
-    icon: '/assets/tech.png',
-    title: 'Sats-Back Rewards API Integration',
-    description: 'Implement a sats-reward backend API linking OpenNode payments and loyalty rules.',
-    price: '120k Sats/hr',
-    tags: ['Node.js', 'API', 'REST'],
-  },
-  {
-    id: 4,
-    category: 'Sales & Marketing',
-    experience: 'Entry',
-    type: 'Fixed',
-    icon: '/assets/sales.png',
-    title: 'Growth Hacker for Bitcoin Education Platform',
-    description: 'Run campaigns to acquire and onboard new users for Bitcoin skill tutorials.',
-    price: '500k Sats',
-    tags: ['Growth', 'SEO', 'Email'],
-  },
-  {
-    id: 5,
-    category: 'Writing',
-    experience: 'Intermediate',
-    type: 'Hourly',
-    icon: '/assets/writting.png',
-    title: 'Technical Copywriter for Lightning Docs',
-    description: 'Craft high-quality documentation for new engineers adopting LN SDKs.',
-    price: '95k Sats/hr',
-    tags: ['Technical Writing', 'Documentation', 'Bitcoin'],
-  },
-  {
-    id: 6,
-    category: 'Finance',
-    experience: 'Expert',
-    type: 'Fixed',
-    icon: '/assets/finance.png',
-    title: 'Bitcoin Tax Compliance Specialist',
-    description: 'Develop automated tax reporting tools for crypto transactions and wallet activities.',
-    price: '1.2M Sats',
-    tags: ['Tax', 'Compliance', 'Crypto'],
-  },
-  {
-    id: 7,
-    category: 'Admin',
-    experience: 'Entry',
-    type: 'Hourly',
-    icon: '/assets/admin.png',
-    title: 'Virtual Assistant for Bitcoin Startup',
-    description: 'Manage schedules, communications, and administrative tasks for a growing BTC company.',
-    price: '50k Sats/hr',
-    tags: ['Admin', 'Communication', 'Organization'],
-  },
-  {
-    id: 8,
-    category: 'Design & Creative',
-    experience: 'Intermediate',
-    type: 'Fixed',
-    icon: '/assets/creative.png',
-    title: 'Brand Identity for Lightning Network App',
-    description: 'Create a cohesive brand identity including logo, colors, and guidelines for LN app.',
-    price: '650k Sats',
-    tags: ['Branding', 'Logo', 'Lightning'],
-  },
-  {
-    id: 9,
-    category: 'Development',
-    experience: 'Intermediate',
-    type: 'Fixed',
-    icon: '/assets/dev.png',
-    title: 'Mobile Wallet Security Audit',
-    description: 'Conduct comprehensive security audit for iOS/Android Bitcoin wallet application.',
-    price: '900k Sats',
-    tags: ['Security', 'Mobile', 'Audit'],
-  },
-  {
-    id: 10,
-    category: 'Sales & Marketing',
-    experience: 'Expert',
-    type: 'Hourly',
-    icon: '/assets/sales.png',
-    title: 'Partnership Manager for Crypto Exchange',
-    description: 'Build and manage strategic partnerships with merchants and businesses for BTC adoption.',
-    price: '150k Sats/hr',
-    tags: ['Partnerships', 'B2B', 'Crypto'],
-  },
-];
+type FindWorkJob = {
+  id: string;
+  category: string;
+  experience: string;
+  type: 'Fixed' | 'Hourly';
+  icon?: string;
+  title: string;
+  description: string;
+  price: string;
+  tags: string[];
+  createdAt?: any;
+};
+
+const CATEGORY_ICONS: Record<string, string> = {
+  Development: '/assets/dev.png',
+  'Design & Creative': '/assets/creative.png',
+  Marketing: '/assets/sales.png',
+  Sales: '/assets/sales.png',
+  'Sales & Marketing': '/assets/sales.png',
+  Writing: '/assets/writting.png',
+  'Finance & Accounting': '/assets/finance.png',
+  Finance: '/assets/finance.png',
+  'Customer Support': '/assets/admin.png',
+  'Project Management': '/assets/admin.png',
+  Admin: '/assets/admin.png',
+  'Data & Analytics': '/assets/tech.png',
+  'DevOps & Infrastructure': '/assets/tech.png',
+  Security: '/assets/tech.png',
+  'Blockchain & Crypto': '/assets/tech.png',
+  'Product Management': '/assets/admin.png',
+  'QA & Testing': '/assets/tech.png',
+};
+
+const formatBudgetLabel = (budget: string, jobType: string) => {
+  const trimmed = String(budget ?? '').trim();
+  if (!trimmed) return '';
+  if (/sats/i.test(trimmed)) return trimmed;
+  return jobType === 'Hourly' ? `${trimmed} Sats/hr` : `${trimmed} Sats`;
+};
+
+const parseBudgetValue = (price: string) => {
+  const cleaned = String(price ?? '').replace(/[^0-9.]/g, '');
+  return cleaned ? Number(cleaned) : 0;
+};
 
 export default function FindWork() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string[]>([]);
-  const [budget, setBudget] = useState(1000000);
+  const [budget, setBudget] = useState(10000000);
   const [selectedExperience, setSelectedExperience] = useState('All');
   const [selectedJobType, setSelectedJobType] = useState('All');
+  const [jobs, setJobs] = useState<FindWorkJob[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState('');
+
+  useEffect(() => {
+    setJobsLoading(true);
+    setJobsError('');
+
+    const jobsQuery = query(collection(firebaseDb, 'jobs'), where('status', '==', 'Open'));
+    const unsubscribe = onSnapshot(
+      jobsQuery,
+      (snapshot) => {
+        const items: FindWorkJob[] = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data() as any;
+            const category = data.category ?? '';
+            const type = data.jobType === 'Hourly' ? 'Hourly' : 'Fixed';
+
+            return {
+              id: docSnap.id,
+              category,
+              experience: data.experienceLevel ?? 'All',
+              type,
+              icon: CATEGORY_ICONS[category] ?? '/assets/tech.png',
+              title: data.title ?? 'Untitled Job',
+              description: data.description?.replace(/\s{2,}/g, ' ').trim() ?? '',
+              price: formatBudgetLabel(data.budget ?? '', data.jobType ?? 'Fixed Price'),
+              tags: Array.isArray(data.skills) ? data.skills : [],
+              createdAt: data.createdAt,
+            };
+          })
+          .sort((a, b) => {
+            const aTime = a.createdAt?.seconds ? a.createdAt.seconds : 0;
+            const bTime = b.createdAt?.seconds ? b.createdAt.seconds : 0;
+            return bTime - aTime;
+          });
+
+        setJobs(items);
+        setJobsLoading(false);
+      },
+      () => {
+        setJobs([]);
+        setJobsLoading(false);
+        setJobsError('Unable to load jobs right now.');
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
 
   const toggleCategory = (category: string) => {
     setSelectedCategory((prev) =>
@@ -140,28 +117,37 @@ export default function FindWork() {
 
   const clearAll = () => {
     setSelectedCategory([]);
-    setBudget(1000000);
+    setBudget(10000000);
     setSelectedExperience('All');
     setSelectedJobType('All');
     setSearchTerm('');
   };
 
+  const categories = useMemo(
+    () =>
+      Array.from(
+        new Set(jobs.map((job) => job.category).filter((value) => value && value.trim().length > 0))
+      ).sort(),
+    [jobs]
+  );
+
   const filteredJobs = useMemo(() => {
-    return JOBS.filter((job) => {
+    return jobs.filter((job) => {
       const matchesSearch =
         job.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         job.description.toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesCategory = selectedCategory.length === 0 || selectedCategory.includes(job.category);
-      const matchesExperience = selectedExperience === 'All' || job.experience === selectedExperience;
+      const matchesExperience =
+        selectedExperience === 'All' ||
+        job.experience === selectedExperience ||
+        job.experience === 'All';
       const matchesType = selectedJobType === 'All' || job.type === selectedJobType;
-      const matchesBudget = job.price.includes('k')
-        ? parseInt(job.price.replace(/[\D]/g, '')) * 1000 <= budget
-        : true;
+      const matchesBudget = parseBudgetValue(job.price) <= budget;
 
       return matchesSearch && matchesCategory && matchesExperience && matchesType && matchesBudget;
     });
-  }, [searchTerm, selectedCategory, selectedExperience, selectedJobType, budget]);
+  }, [jobs, searchTerm, selectedCategory, selectedExperience, selectedJobType, budget]);
 
   return (
     <section className="bg-[#FCF9F7] pt-[30px] pb-16 min-h-screen">
@@ -171,7 +157,7 @@ export default function FindWork() {
           <p className="mt-2 text-sm text-[#666]">Browse the latest Bitcoin-native freelance opportunities.</p>
         </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_1fr]">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
           {/* <aside className="rounded-2xl border border-[#f0ebe3] bg-white p-5 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-bold text-[#333] uppercase tracking-wide">Filters</h2>
@@ -261,7 +247,7 @@ export default function FindWork() {
           Category
         </p>
         <div className="flex flex-col gap-2.5">
-          {CATEGORIES.map((cat) => {
+          {categories.map((cat) => {
             const checked = selectedCategory.includes(cat);
             return (
               <label key={cat} className="flex items-center gap-2.5 cursor-pointer">
@@ -407,7 +393,7 @@ export default function FindWork() {
             </div>
           </main> */}
 
-          <main>
+          <main className="min-w-0">
   {/* Header bar */}
   <div className="mb-5 w-full ">
     <div className="relative">
@@ -452,7 +438,15 @@ export default function FindWork() {
 
   {/* Job list — single column like the screenshot */}
   <div className="flex flex-col gap-4">
-    {filteredJobs.length ? (
+    {jobsLoading ? (
+      <div className="rounded-2xl border border-[#ece7dd] bg-white p-8 text-center text-[#777]">
+        Loading jobs...
+      </div>
+    ) : jobsError ? (
+      <div className="rounded-2xl border border-[#ece7dd] bg-white p-8 text-center text-[#8C4F00]">
+        {jobsError}
+      </div>
+    ) : filteredJobs.length ? (
       filteredJobs.map((job) => (
         <JobCard
           key={job.id}

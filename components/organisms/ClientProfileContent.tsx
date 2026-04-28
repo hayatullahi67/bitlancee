@@ -61,14 +61,20 @@ export default function ClientProfileContent() {
         const clientSnap = await getDoc(doc(firebaseDb, "clients", user.uid));
         const allData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
         const clientData = clientSnap.exists() ? (clientSnap.data() as any) : {};
-        const firstName = allData.firstName ?? "";
-        const lastName = allData.lastName ?? "";
-        const fullName = allData.fullName ?? `${firstName} ${lastName}`.trim();
+
+        // Fetch name and identity data EXCLUSIVELY from the 'clients' collection as requested
+        const firstName = clientData.firstName ?? "";
+        const lastName = clientData.lastName ?? "";
+        const fullName = clientData.fullName ?? `${firstName} ${lastName}`.trim();
+        
+        // Email remains fetched from allData/Auth as it's the primary account key
+        const email = allData.email ?? clientData.email ?? user.email ?? "";
+
         setProfile({
           firstName,
           lastName,
           fullName,
-          email: allData.email ?? user.email ?? "",
+          email,
           companyName: clientData.companyName ?? "",
           roleTitle: clientData.roleTitle ?? "Hiring Manager",
           phone: clientData.phone ?? "",
@@ -123,6 +129,9 @@ export default function ClientProfileContent() {
         updatedAt: serverTimestamp(),
       });
       await updateDoc(doc(firebaseDb, "clients", user.uid), {
+        firstName: profile.firstName.trim(),
+        lastName: profile.lastName.trim(),
+        fullName,
         companyName: profile.companyName.trim(),
         roleTitle: profile.roleTitle.trim(),
         phone: profile.phone.trim(),

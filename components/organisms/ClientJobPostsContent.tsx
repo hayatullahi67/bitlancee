@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/atoms/Button";
 import ClientJobPostCard from "@/components/molecules/ClientJobPostCard";
 import ClientProposalCard from "@/components/molecules/ClientProposalCard";
@@ -57,6 +57,7 @@ const JOB_CATEGORIES = [
 
 export default function ClientJobPostsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [selectedJobId, setSelectedJobId] = useState("");
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
@@ -64,7 +65,7 @@ export default function ClientJobPostsContent() {
   const [selectedProposals, setSelectedProposals] = useState<Record<string, boolean>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"all" | "active" | "review" | "paused">("all");
-  const [isPostModalOpen, setIsPostModalOpen] = useState(false);
+  const [isPostModalOpen, setIsPostModalOpen] = useState(searchParams.get('action') === 'new');
   const [postTitle, setPostTitle] = useState("");
   const [postBudget, setPostBudget] = useState("");
   const [postType, setPostType] = useState("Fixed Price");
@@ -87,6 +88,12 @@ export default function ClientJobPostsContent() {
   const [editCategory, setEditCategory] = useState("");
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editJobId, setEditJobId] = useState<string | null>(null);
+  const [showToast, setShowToast] = useState<{ show: boolean; message: string }>({ show: false, message: "" });
+
+  const triggerToast = (message: string) => {
+    setShowToast({ show: true, message });
+    setTimeout(() => setShowToast({ show: false, message: "" }), 3000);
+  };
 
   useEffect(() => {
     setSelectedProposals({});
@@ -582,6 +589,8 @@ export default function ClientJobPostsContent() {
                     updatedAt: serverTimestamp(),
                   });
                   await batch.commit();
+                  setSelectedProposals({});
+                  triggerToast(`Successfully hired ${freelancerNames.join(", ")}!`);
                 }}
               >
                 Accept Selected
@@ -757,9 +766,6 @@ export default function ClientJobPostsContent() {
                 className="rounded-full w-full sm:w-auto"
                 onClick={async () => {
                   if (!editJob?.id) return;
-                  // if (!editTitle.trim() || !editBudget.trim() || !editDescription.trim()) return;
-
-                  // WITH THIS:
                   if (!editTitle.trim() || editTitle.trim().length < 3) {
                     alert("Please enter a job title (at least 3 characters).");
                     return;
@@ -959,11 +965,6 @@ export default function ClientJobPostsContent() {
                 size="sm"
                 className="rounded-full w-full sm:w-auto"
                 onClick={async () => {
-                  // if (!postTitle.trim() || !postBudget.trim() || !postDescription.trim()) {
-                  //   return;
-                  // }
-
-                  // WITH THIS:
                   if (!postTitle.trim() || postTitle.trim().length < 3) {
                     alert("Please enter a job title (at least 3 characters).");
                     return;
@@ -1036,6 +1037,19 @@ export default function ClientJobPostsContent() {
           </div>
         </div>
       ) : null}
+
+      {showToast.show && (
+        <div className="fixed bottom-8 left-1/2 z-[100] -translate-x-1/2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <div className="flex items-center gap-3 rounded-full bg-[#1a1a1a] px-6 py-3 shadow-2xl border border-[#333]">
+            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-green-500">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <span className="text-[13px] font-medium text-white">{showToast.message}</span>
+          </div>
+        </div>
+      )}
     </section>
   );
 }

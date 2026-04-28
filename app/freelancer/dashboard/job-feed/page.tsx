@@ -10,7 +10,7 @@ export default function JobFeedPage() {
             {/* Active state set to the job feed route */}
             <FreelancerSidebar active="/freelancer/dashboard/job-feed" />
 
-            <section className="">
+            <section className="min-w-0">
               <JobFeedContent />
             </section>
           </div>

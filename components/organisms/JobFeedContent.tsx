@@ -4,12 +4,10 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  Search, 
-  Filter, 
-  Bookmark, 
+import {
+  Search,
+  Bookmark,
   ArrowUpRight,
-  ChevronDown,
   Briefcase,
   Zap,
 } from 'lucide-react';
@@ -21,6 +19,60 @@ const isNonEmptyString = (value: string | undefined): value is string =>
 
 const getCategories = (items: JobFeedItem[]) =>
   Array.from(new Set(items.map((job) => job.category).filter(isNonEmptyString))).sort();
+
+const getTimestampMs = (value: unknown) => {
+  if (!value) return 0;
+
+  if (value instanceof Date) return value.getTime();
+
+  if (typeof value === 'number') return value;
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  if (typeof value === 'object') {
+    const timestampLike = value as {
+      toMillis?: () => number;
+      seconds?: number;
+      nanoseconds?: number;
+    };
+
+    if (typeof timestampLike.toMillis === 'function') {
+      return timestampLike.toMillis();
+    }
+
+    if (typeof timestampLike.seconds === 'number') {
+      const extraMs = typeof timestampLike.nanoseconds === 'number'
+        ? Math.floor(timestampLike.nanoseconds / 1000000)
+        : 0;
+      return timestampLike.seconds * 1000 + extraMs;
+    }
+  }
+
+  return 0;
+};
+
+const formatPostedAt = (createdAt: unknown) => {
+  const createdAtMs = getTimestampMs(createdAt);
+  if (!createdAtMs) return 'Recently';
+
+  const diffMs = Math.max(0, Date.now() - createdAtMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  if (diffMs < minute) return 'Just now';
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
+  if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
+  if (diffMs < month) return `${Math.floor(diffMs / day)}d ago`;
+  if (diffMs < year) return `${Math.floor(diffMs / month)}mo ago`;
+
+  return `${Math.floor(diffMs / year)}y ago`;
+};
 
 type JobFeedItem = {
   id: string;
@@ -53,10 +105,7 @@ export default function JobFeedContent() {
       (snapshot) => {
         const items: JobFeedItem[] = snapshot.docs.map((docSnap) => {
           const data = docSnap.data() as any;
-          const createdAt = data.createdAt?.seconds ? data.createdAt.seconds * 1000 : 0;
-          const postedAt = createdAt
-            ? `${Math.max(1, Math.round((Date.now() - createdAt) / 3600000))}h ago`
-            : 'Recently';
+          const postedAt = formatPostedAt(data.createdAt);
           const budget = data.budget ?? '';
           const price = budget?.trim()
             ? budget.toLowerCase().includes('sats')
@@ -137,9 +186,11 @@ export default function JobFeedContent() {
     );
   }, [searchTerm, activeCategory, jobs]);
 
+  const categories = useMemo(() => ['All', ...getCategories(jobs)], [jobs]);
+
   return (
     <section className="bg-[#FCF9F7] py-16">
-      <div className="mx-auto w-full max-w-7xl px-6 lg:px-8">
+      <div className="mx-auto w-full min-w-0 max-w-7xl px-6 lg:px-8">
 
         {/* HEADER */}
         <header className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 mb-10">
@@ -183,23 +234,25 @@ export default function JobFeedContent() {
         </div>
 
         {/* MAIN FEED */}
-        <div className="space-y-6">
+        <div className="space-y-6 min-w-0 overflow-hidden">
           {/* Category chips */}
           {!isSavedOpen ? (
-            <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {['All', ...getCategories(jobs)].map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={`px-6 py-2 rounded-full text-xs font-bold transition-all border whitespace-nowrap ${
-                    activeCategory === cat
-                      ? 'bg-gradient-to-r from-orange-600 to-orange-400 text-white shadow-lg shadow-[#F7931A]/20'
-                      : 'bg-white text-[#6b6560] border-[#ece7df]'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
+            <div className="w-full min-w-0 max-w-full overflow-x-auto overflow-y-hidden pb-2">
+              <div className="inline-flex min-w-max items-center gap-2 pr-1">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveCategory(cat)}
+                    className={`shrink-0 whitespace-nowrap rounded-full border px-6 py-2 text-xs font-bold transition-all ${
+                      activeCategory === cat
+                        ? 'bg-gradient-to-r from-orange-600 to-orange-400 text-white shadow-lg shadow-[#F7931A]/20'
+                        : 'bg-white text-[#6b6560] border-[#ece7df]'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
             </div>
           ) : null}
 
@@ -335,11 +388,10 @@ function JobFeedCard({
             e.stopPropagation();
             if (onToggleSave) onToggleSave();
           }}
-          className={`flex items-center justify-center h-9 w-9 rounded-full border transition-colors ${
-            isSaved
-              ? "bg-[#F7931A] text-white border-[#F7931A]"
-              : "bg-white text-[#8C4F00] border-[#EAE7E2] hover:bg-[#F7F4F0]"
-          }`}
+          className={`flex items-center justify-center h-9 w-9 rounded-full border transition-colors ${isSaved
+            ? "bg-[#F7931A] text-white border-[#F7931A]"
+            : "bg-white text-[#8C4F00] border-[#EAE7E2] hover:bg-[#F7F4F0]"
+            }`}
           aria-label={isSaved ? "Unsave job" : "Save job"}
         >
           <Bookmark className="w-4 h-4" fill={isSaved ? "currentColor" : "none"} />
@@ -373,8 +425,8 @@ function JobFeedCard({
         </p>
       ) : null} */}
       <p className="text-sm text-[#6b6560] leading-relaxed mb-2 overflow-hidden break-all" style={{ display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-  {job.description}
-</p>
+        {job.description}
+      </p>
 
       {/* Tags */}
       {job.tags.length > 0 ? (

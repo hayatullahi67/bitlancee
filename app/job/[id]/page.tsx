@@ -1,16 +1,13 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   Send,
   Zap,
-  CheckCircle,
   ShieldCheck,
   Globe,
-  Star,
-  MapPin,
   Bookmark,
   Bold,
   Italic,
@@ -18,7 +15,92 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { firebaseAuth, firebaseDb } from '@/lib/firebase';
-import { addDoc, collection, doc, getDoc, getDocs, increment, query, serverTimestamp, updateDoc, where } from 'firebase/firestore';
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, increment, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+
+const digitsOnly = (value: string) => value.replace(/\D/g, '');
+const formatSats = (value: string | number) => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '0 sats';
+  return raw.toLowerCase().includes('sats') ? raw : `${raw} sats`;
+};
+const parseSats = (value: string | number) => {
+  const cleaned = String(value ?? '').replace(/[^0-9.]/g, '');
+  return cleaned ? Number(cleaned) : 0;
+};
+
+const getTimestampMs = (value: unknown) => {
+  if (!value) return 0;
+
+  if (value instanceof Date) return value.getTime();
+
+  if (typeof value === 'number') return value;
+
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  if (typeof value === 'object') {
+    const timestampLike = value as {
+      toMillis?: () => number;
+      seconds?: number;
+      nanoseconds?: number;
+    };
+
+    if (typeof timestampLike.toMillis === 'function') {
+      return timestampLike.toMillis();
+    }
+
+    if (typeof timestampLike.seconds === 'number') {
+      const extraMs = typeof timestampLike.nanoseconds === 'number'
+        ? Math.floor(timestampLike.nanoseconds / 1000000)
+        : 0;
+      return timestampLike.seconds * 1000 + extraMs;
+    }
+  }
+
+  return 0;
+};
+
+const formatPostedAt = (createdAt: unknown) => {
+  const createdAtMs = getTimestampMs(createdAt);
+  if (!createdAtMs) return 'Recently';
+
+  const diffMs = Math.max(0, Date.now() - createdAtMs);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  const month = 30 * day;
+  const year = 365 * day;
+
+  if (diffMs < minute) return 'Just now';
+  if (diffMs < hour) return `${Math.floor(diffMs / minute)}m ago`;
+  if (diffMs < day) return `${Math.floor(diffMs / hour)}h ago`;
+  if (diffMs < month) return `${Math.floor(diffMs / day)}d ago`;
+  if (diffMs < year) return `${Math.floor(diffMs / month)}mo ago`;
+
+  return `${Math.floor(diffMs / year)}y ago`;
+};
+
+const formatMemberSince = (value: unknown) => {
+  const timestampMs = getTimestampMs(value);
+  if (!timestampMs) return '';
+
+  return new Date(timestampMs).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+  });
+};
+
+type ClientSidebarData = {
+  name: string;
+  avatarUrl: string;
+  location: string;
+  jobsPosted: number;
+  hires: number;
+  totalSpent: string;
+  memberSince: string;
+};
 
 export default function JobDetailPage() {
   const params = useParams();
@@ -28,11 +110,22 @@ export default function JobDetailPage() {
   const [submitState, setSubmitState] = useState<'idle' | 'submitting' | 'done'>('idle');
   const [errorMessage, setErrorMessage] = useState('');
   const [hasApplied, setHasApplied] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [clientSidebar, setClientSidebar] = useState<ClientSidebarData>({
+    name: 'Client',
+    avatarUrl: '',
+    location: 'Remote',
+    jobsPosted: 0,
+    hires: 0,
+    totalSpent: '0 sats',
+    memberSince: '',
+  });
+  const proposalSectionRef = useRef<HTMLDivElement | null>(null);
 
   const [coverLetter, setCoverLetter] = useState('');
-  const [hoursPerWeek, setHoursPerWeek] = useState('20');
-  const [hourlyRate, setHourlyRate] = useState('150,000');
-  const [fixedPrice, setFixedPrice] = useState('1,000,000');
+  const [hoursPerWeek, setHoursPerWeek] = useState('');
+  const [hourlyRate, setHourlyRate] = useState('');
+  const [fixedPrice, setFixedPrice] = useState('');
 
   useEffect(() => {
     const loadJob = async () => {
@@ -54,6 +147,19 @@ export default function JobDetailPage() {
   }, [jobId]);
 
   useEffect(() => {
+    if (!job) return;
+
+    const jobBudget = digitsOnly(typeof job.budget === 'string' ? job.budget : String(job.budget ?? ''));
+    if (job.jobType === 'Hourly') {
+      setHourlyRate(jobBudget);
+      setFixedPrice('');
+    } else {
+      setFixedPrice(jobBudget);
+      setHourlyRate('');
+    }
+  }, [job]);
+
+  useEffect(() => {
     const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
       if (!user || !job?.id) return;
       const proposalsQuery = query(
@@ -67,6 +173,107 @@ export default function JobDetailPage() {
     return () => unsubscribe();
   }, [job?.id]);
 
+  useEffect(() => {
+    let unsubscribeSaved: (() => void) | undefined;
+
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user || !jobId) {
+        if (unsubscribeSaved) unsubscribeSaved();
+        setIsSaved(false);
+        return;
+      }
+
+      const savedQuery = query(
+        collection(firebaseDb, 'saved_jobs'),
+        where('userId', '==', user.uid),
+        where('jobId', '==', jobId)
+      );
+
+      unsubscribeSaved = onSnapshot(savedQuery, (snapshot) => {
+        setIsSaved(!snapshot.empty);
+      });
+    });
+
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeSaved) unsubscribeSaved();
+    };
+  }, [jobId]);
+
+  useEffect(() => {
+    const clientId = job?.clientId;
+    if (!clientId) {
+      setClientSidebar({
+        name: job?.clientName ?? job?.clientCompany ?? 'Client',
+        avatarUrl: '',
+        location: 'Remote',
+        jobsPosted: 0,
+        hires: 0,
+        totalSpent: '0 sats',
+        memberSince: '',
+      });
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadClientSidebar = async () => {
+      try {
+        const [allUsersSnap, clientSnap, jobsSnap, contractsSnap] = await Promise.all([
+          getDoc(doc(firebaseDb, 'all_users', clientId)),
+          getDoc(doc(firebaseDb, 'clients', clientId)),
+          getDocs(query(collection(firebaseDb, 'jobs'), where('clientId', '==', clientId))),
+          getDocs(query(collection(firebaseDb, 'contracts'), where('clientId', '==', clientId))),
+        ]);
+
+        if (cancelled) return;
+
+        const allData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+        const clientData = clientSnap.exists() ? (clientSnap.data() as any) : {};
+
+        const jobsPostedFallback = jobsSnap.size;
+        const hiresFallback = contractsSnap.size;
+        const spentFallback = contractsSnap.docs.reduce((sum, docSnap) => {
+          const data = docSnap.data() as any;
+          return sum + parseSats(data.budget ?? data.fixedPrice ?? data.rate ?? 0);
+        }, 0);
+
+        setClientSidebar({
+          name:
+            clientData.companyName ??
+            clientData.fullName ??
+            allData.fullName ??
+            job?.clientName ??
+            job?.clientCompany ??
+            'Client',
+          avatarUrl: clientData.avatarUrl ?? allData.avatarUrl ?? '',
+          location: clientData.location ?? allData.location ?? 'Remote',
+          jobsPosted: Number(clientData.jobsPosted ?? jobsPostedFallback ?? 0),
+          hires: Number(clientData.hires ?? hiresFallback ?? 0),
+          totalSpent: formatSats(clientData.totalSpent ?? spentFallback),
+          memberSince: formatMemberSince(allData.createdAt ?? clientData.createdAt),
+        });
+      } catch {
+        if (cancelled) return;
+        setClientSidebar({
+          name: job?.clientName ?? job?.clientCompany ?? 'Client',
+          avatarUrl: '',
+          location: 'Remote',
+          jobsPosted: 0,
+          hires: 0,
+          totalSpent: '0 sats',
+          memberSince: '',
+        });
+      }
+    };
+
+    loadClientSidebar();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [job?.clientCompany, job?.clientId, job?.clientName]);
+
   if (loading) return <div className="p-6 sm:p-10 text-center">Loading job...</div>;
   if (!job) return <div className="p-6 sm:p-10 text-center">Job not found</div>;
 
@@ -75,10 +282,14 @@ export default function JobDetailPage() {
       ? job.budget
       : `${job?.budget ?? ''} Sats`;
   const skills = Array.isArray(job?.skills) ? job.skills : [];
-  const postedAt = job?.createdAt?.seconds
-    ? `${Math.max(1, Math.round((Date.now() - job.createdAt.seconds * 1000) / 3600000))} hours ago`
-    : 'Recently';
+  const postedAt = formatPostedAt(job?.createdAt);
   const pricingType = job?.jobType === 'Hourly' ? 'Hourly' : 'Fixed Price';
+  const clientInitials = clientSidebar.name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('') || 'CL';
 
   return (
     <div className="min-h-screen bg-[#F7F6F3] font-sans text-[#1a1a1a]">
@@ -102,7 +313,7 @@ export default function JobDetailPage() {
                 </span>
                 <span className="text-xs text-gray-400">Posted {postedAt}</span>
               </div>
-              <h1 className="text-[28px] sm:text-[40px] lg:text-[60px] font-bold leading-tight mb-3 sm:mb-4 tracking-tight">
+              <h1 className="text-[28px] sm:text-[40px] lg:text-[50px] font-bold leading-tight mb-3 sm:mb-4 tracking-tight">
                 {job.title}
               </h1>
               {/* Quick Stats Row */}
@@ -118,8 +329,8 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                {/* Location */}
-                <div className="flex items-center gap-2 sm:gap-3">
+                
+                {/* <div className="flex items-center gap-2 sm:gap-3">
                   <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#EFF6FF] flex items-center justify-center">
                     <Globe className="w-4 h-4 sm:w-5 sm:h-5 text-[#1D4ED8]" />
                   </div>
@@ -129,7 +340,7 @@ export default function JobDetailPage() {
                   </div>
                 </div>
 
-                {/* Client Tier */}
+               
                 <div className="flex items-center gap-2 sm:gap-3">
                   <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#F0FDF4] flex items-center justify-center">
                     <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5 text-[#16A34A]" />
@@ -138,7 +349,7 @@ export default function JobDetailPage() {
                     <p className="text-[8px] sm:text-[9px] text-gray-400 uppercase font-extrabold tracking-widest">Client Tier</p>
                     <p className="font-bold text-[13px] sm:text-[15px]">Top Rated</p>
                   </div>
-                </div>
+                </div> */}
               </div>
             </div>
         </div>
@@ -151,7 +362,10 @@ export default function JobDetailPage() {
 
 
             {/* Job Header Card (now only description and tags) */}
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 shadow-sm border border-[#e8e6e1]">
+            <div
+              ref={proposalSectionRef}
+              className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 shadow-sm border border-[#e8e6e1] scroll-mt-24"
+            >
 
               {/* Job Description */}
               <div className="space-y-3 sm:space-y-4">
@@ -220,13 +434,16 @@ export default function JobDetailPage() {
                     <div className="relative">
                       <input
                         type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={pricingType === 'Hourly' ? hourlyRate : fixedPrice}
                         onChange={(e) =>
                           pricingType === 'Hourly'
-                            ? setHourlyRate(e.target.value)
-                            : setFixedPrice(e.target.value)
+                            ? setHourlyRate(digitsOnly(e.target.value))
+                            : setFixedPrice(digitsOnly(e.target.value))
                         }
                         className="w-full bg-[#FDFCFB] border border-[#ece7df] rounded-lg sm:rounded-xl px-3 sm:px-4 py-3 sm:py-4 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/30"
+                        placeholder={digitsOnly(typeof job?.budget === 'string' ? job.budget : String(job?.budget ?? '')) || 'Enter your rate'}
                       />
                       <span className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-[10px] sm:text-[11px] font-extrabold text-[#B45309] tracking-wider">
                         SATS
@@ -244,8 +461,10 @@ export default function JobDetailPage() {
                     <div className="relative">
                       <input
                         type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
                         value={hoursPerWeek}
-                        onChange={(e) => setHoursPerWeek(e.target.value)}
+                        onChange={(e) => setHoursPerWeek(digitsOnly(e.target.value))}
                         className="w-full bg-[#FDFCFB] border border-[#ece7df] rounded-lg sm:rounded-xl px-3 sm:px-4 py-3 sm:py-4 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/30"
                         placeholder="e.g. 20"
                       />
@@ -335,9 +554,9 @@ export default function JobDetailPage() {
 
                         setSubmitState('done');
                         setCoverLetter('');
-                        setHourlyRate('150,000');
-                        setFixedPrice('1,000,000');
-                        setHoursPerWeek('20');
+                        setHourlyRate(pricingType === 'Hourly' ? digitsOnly(typeof job?.budget === 'string' ? job.budget : String(job?.budget ?? '')) : '');
+                        setFixedPrice(pricingType === 'Hourly' ? '' : digitsOnly(typeof job?.budget === 'string' ? job.budget : String(job?.budget ?? '')));
+                        setHoursPerWeek('');
                         setHasApplied(true);
                       } catch {
                         setErrorMessage('Unable to submit proposal right now.');
@@ -370,20 +589,52 @@ export default function JobDetailPage() {
               <div>
                 <button
                   disabled={hasApplied}
-                  className="w-full bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] hover:from-[#A85C00] hover:to-[#A85C00] active:scale-95 text-white py-3 sm:py-4 rounded-full font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-md mb-2 sm:mb-3 disabled:opacity-70"
+                  onClick={() => {
+                    proposalSectionRef.current?.scrollIntoView({
+                      behavior: 'smooth',
+                      block: 'start',
+                    });
+                  }}
+                  className="w-full bg-gradient-to-r from-orange-600 to-orange-400 to-[#F7931A] hover:from-[#A85C00] hover:to-[#A85C00] active:scale-95 text-white py-2.5 sm:py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md mb-2 sm:mb-3 disabled:opacity-70"
                 >
                   {hasApplied ? 'Applied' : 'Apply Now'} <Zap className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
                 </button>
-                <button className="w-full bg-white hover:bg-gray-100 text-[#1a1a1a] py-3 sm:py-4 rounded-full font-bold text-sm sm:text-base border border-[#e0e0e0] flex items-center justify-center gap-2 transition-all shadow-sm">
-                  <Bookmark className="w-4 h-4 sm:w-5 sm:h-5" /> Save Job
+                <button
+                  onClick={async () => {
+                    const user = firebaseAuth.currentUser;
+                    if (!user) {
+                      setErrorMessage('Please log in to save jobs.');
+                      return;
+                    }
+
+                    const docId = `${user.uid}_${job.id}`;
+                    setErrorMessage('');
+
+                    if (isSaved) {
+                      await deleteDoc(doc(firebaseDb, 'saved_jobs', docId));
+                    } else {
+                      await setDoc(doc(firebaseDb, 'saved_jobs', docId), {
+                        userId: user.uid,
+                        jobId: job.id,
+                        createdAt: serverTimestamp(),
+                        updatedAt: serverTimestamp(),
+                      });
+                    }
+                  }}
+                  className={`w-full py-2.5 sm:py-3 rounded-full font-bold text-sm border flex items-center justify-center gap-2 transition-all shadow-sm ${
+                    isSaved
+                      ? 'bg-[#F7931A] text-white border-[#F7931A]'
+                      : 'bg-white hover:bg-gray-100 text-[#1a1a1a] border-[#e0e0e0]'
+                  }`}
+                >
+                  <Bookmark className="w-4 h-4 sm:w-5 sm:h-5" fill={isSaved ? 'currentColor' : 'none'} />
+                  {isSaved ? 'Saved' : 'Save Job'}
                 </button>
               </div>
 
               <div className="space-y-1 sm:space-y-2 px-1">
                 {[
-                  { label: 'Proposals', value: '15 to 20' },
-                  { label: 'Connects Required', value: '6 Sats' },
-                  { label: 'Active Interviews', value: '3' },
+                  { label: 'Proposals', value: String(job?.proposals ?? 0) },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between text-sm sm:text-[15px]">
                     <span className="text-gray-600 font-medium">{label}</span>
@@ -397,46 +648,52 @@ export default function JobDetailPage() {
                 <p className="text-[8px] sm:text-[9px] font-extrabold uppercase text-gray-400 mb-4 sm:mb-6 tracking-widest">About the Client</p>
                 {/* Client Identity */}
                 <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#0C2D2B] rounded-full flex items-center justify-center shrink-0">
-                    <span className="text-white text-[8px] sm:text-[9px] font-extrabold">LL</span>
+                  <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#0C2D2B] rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                    {clientSidebar.avatarUrl ? (
+                      <img src={clientSidebar.avatarUrl} alt={clientSidebar.name} className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-white text-[8px] sm:text-[9px] font-extrabold">{clientInitials}</span>
+                    )}
                   </div>
                   <div>
-                    <h4 className="font-extrabold text-sm">Lightning Labs Inc.</h4>
-                    <div className="flex items-center gap-0.5 mt-1">
-                      {[1, 2, 3, 4, 5].map(i => (
-                        <Star key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-[#CC7000] text-[#CC7000]" />
-                      ))}
-                      <span className="text-xs font-bold ml-1 text-gray-700">4.9</span>
-                    </div>
+                    <h4 className="font-extrabold text-sm">{clientSidebar.name}</h4>
+                    <div className="mt-1 text-xs text-gray-500">{clientSidebar.location || 'Remote'}</div>
                   </div>
                 </div>
                 {/* Client Details */}
                 <div className="space-y-3 sm:space-y-4 text-sm">
                   <div className="flex items-start gap-2 sm:gap-3">
-                    <MapPin className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 mt-0.5 shrink-0" />
+                    <Globe className="w-3 h-3 sm:w-4 sm:h-4 text-gray-400 mt-0.5 shrink-0" />
                     <div>
-                      <p className="font-bold text-gray-800">San Francisco, USA</p>
-                      <p className="text-xs text-gray-400">10:45 AM local time</p>
+                      <p className="font-bold text-gray-800">{clientSidebar.totalSpent}</p>
+                      <p className="text-xs text-gray-400">Total spent on Bitlance</p>
                     </div>
                   </div>
                   <div className="flex items-start gap-2 sm:gap-3">
                     <span className="text-gray-400 font-bold mt-0.5 shrink-0 text-sm sm:text-base leading-none">$</span>
                     <div>
-                      <p className="font-bold text-gray-800">85M+ Sats Spent</p>
-                      <p className="text-xs text-gray-400">42 Jobs Posted</p>
+                      <p className="font-bold text-gray-800">{clientSidebar.jobsPosted}</p>
+                      <p className="text-xs text-gray-400">Jobs posted</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 sm:gap-3">
-                    <CheckCircle className="w-3 h-3 sm:w-4 sm:h-4 text-[#16A34A] shrink-0" />
-                    <p className="font-bold text-gray-800">Payment Verified</p>
+                  <div className="flex items-start gap-2 sm:gap-3">
+                    <ShieldCheck className="w-3 h-3 sm:w-4 sm:h-4 text-[#16A34A] shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-bold text-gray-800">{clientSidebar.hires}</p>
+                      <p className="text-xs text-gray-400">Freelancers hired</p>
+                    </div>
                   </div>
-                  <p className="text-[8px] sm:text-[9px] text-gray-400 uppercase font-extrabold pt-1 tracking-widest">
-                    Member since Jan 2021
-                  </p>
+                  {clientSidebar.memberSince ? (
+                    <p className="text-[8px] sm:text-[9px] text-gray-400 uppercase font-extrabold pt-1 tracking-widest">
+                      Member since {clientSidebar.memberSince}
+                    </p>
+                  ) : null}
                 </div>
-                <button className="w-full mt-5 sm:mt-7 text-[#CC7000] hover:text-[#A85C00] font-bold text-sm transition-colors">
-                  View Company Profile
-                </button>
+                {job?.clientId ? (
+                  <Link href={`/client/public/${job.clientId}`} className="block w-full mt-5 sm:mt-7 text-[#CC7000] hover:text-[#A85C00] font-bold text-sm transition-colors text-center">
+                    View Company Profile
+                  </Link>
+                ) : null}
               </div>
             </div>
           </div>

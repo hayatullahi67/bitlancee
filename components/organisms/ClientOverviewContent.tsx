@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Button from "@/components/atoms/Button";
 import DashboardMetricCard from "@/components/molecules/DashboardMetricCard";
 import ClientJobPostCard from "@/components/molecules/ClientJobPostCard";
@@ -8,43 +8,40 @@ import ClientContractCard from "@/components/molecules/ClientContractCard";
 import ClientProposalCard from "@/components/molecules/ClientProposalCard";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, where } from "firebase/firestore";
 
 const METRICS = [
-  { label: "Active Contracts", value: "7", change: "+2 this month", tone: "up" as const },
-  { label: "Open Job Posts", value: "4", change: "1 in review", tone: "neutral" as const },
-  { label: "Total Spend", value: "3.4M sats", change: "+18% QoQ", tone: "up" as const },
-  { label: "Response Rate", value: "98%", change: "Top percentile", tone: "neutral" as const },
+  { label: "Active Contracts", value: "0", change: "None yet", tone: "neutral" as const },
+  { label: "Open Job Posts", value: "0", change: "None yet", tone: "neutral" as const },
+  { label: "Total Spend", value: "0 sats", change: "None yet", tone: "neutral" as const },
+  { label: "Response Rate", value: "—", change: "Pending data", tone: "neutral" as const },
 ];
 
-const CONTRACTS = [
-  {
-    id: "c-1",
-    title: "Payment Routing Optimizer",
-    freelancer: "Nadia K.",
-    progress: 68,
-    nextMilestone: "Delivery of routing API v2",
-    status: "Active" as const,
-    budget: "820,000 sats",
-    startDate: "Mar 12, 2026",
-    dueDate: "May 02, 2026",
-    description:
-      "Build a routing engine that improves payment success rates with real-time channel scoring.",
-  },
-  {
-    id: "c-2",
-    title: "Security Audit for LDK Gateway",
-    freelancer: "Solomon P.",
-    progress: 92,
-    nextMilestone: "Final audit report",
-    status: "Review" as const,
-    budget: "640,000 sats",
-    startDate: "Feb 18, 2026",
-    dueDate: "Apr 11, 2026",
-    description:
-      "Comprehensive audit of gateway and LDK integration with threat model and mitigations.",
-  },
-];
+type ContractStatus = "Active" | "Review" | "Completed";
+
+type Contract = {
+  id: string;
+  title: string;
+  freelancer: string;
+  freelancerId?: string;
+  clientId?: string;
+  jobId?: string;
+  contractType?: "Fixed Price" | "Hourly";
+  progress: number;
+  nextMilestone: string;
+  status: ContractStatus;
+  budget: string;
+  startDate: string;
+  dueDate: string;
+  description: string;
+  scopeItems?: string[];
+  milestones?: Array<{
+    name: string;
+    amount: string;
+    deadline: string;
+    status: "Pending" | "In Progress" | "Approved";
+  }>;
+};
 
 type ProposalItem = {
   id: string;
@@ -70,46 +67,49 @@ type JobPost = {
   createdAt?: any;
 };
 
-const PROPOSALS: { [key: string]: ProposalItem[] } = {
-  "job-1": [
-    {
-      id: "p-1",
-      name: "Satoshi Nakamoto",
-      title: "Senior Rust & Lightning Engineer",
-      rate: "150,000 sats/hr",
-      cover:
-        "I've built high-availability Lightning monitoring stacks for exchanges. I can ship the observability suite with real-time alerts and metrics dashboards.",
-      rating: 5,
-      availability: "30 hrs/week",
-    },
-  ],
-  "job-2": [
-    {
-      id: "p-2",
-      name: "Solomon P.",
-      title: "Product Analytics Lead",
-      rate: "95,000 sats/hr",
-      cover:
-        "I can build a treasury dashboard with clear reporting, data exports, and executive summaries.",
-      rating: 4.9,
-      availability: "20 hrs/week",
-    },
-  ],
+const PROPOSALS: { [key: string]: ProposalItem[] } = {};
+
+const formatDate = (value: any) => {
+  if (!value) return "-";
+  if (typeof value === "string") return value;
+  const date = value?.seconds ? new Date(value.seconds * 1000) : new Date(value);
+  return date.toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" });
+};
+
+const formatSats = (value: string) => {
+  const safeValue = String(value ?? "").trim();
+  if (!safeValue) return "0 sats";
+  return safeValue.toLowerCase().includes("sats") ? safeValue : `${safeValue} sats`;
+};
+
+const parseSats = (value: string) => {
+  const cleaned = String(value ?? "").replace(/[^0-9.]/g, "");
+  return cleaned ? Number(cleaned) : 0;
 };
 
 export default function ClientOverviewContent() {
+  const [displayName, setDisplayName] = useState('Client');
   const [contractModalOpen, setContractModalOpen] = useState(false);
   const [jobModalOpen, setJobModalOpen] = useState(false);
-  const [selectedContractId, setSelectedContractId] = useState(CONTRACTS[0]?.id ?? "");
+  const [selectedContractId, setSelectedContractId] = useState("");
   const [selectedJobId, setSelectedJobId] = useState("");
   const [selectedProposals, setSelectedProposals] = useState<Record<string, boolean>>({});
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [jobsLoading, setJobsLoading] = useState(true);
   const [jobsError, setJobsError] = useState("");
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contractsLoading, setContractsLoading] = useState(true);
+  const [contractsError, setContractsError] = useState("");
+  const freelancerNameCache = useRef<Record<string, string>>({});
 
   const selectedContract = useMemo(
-    () => CONTRACTS.find((c) => c.id === selectedContractId) ?? CONTRACTS[0],
-    [selectedContractId]
+    () => contracts.find((c) => c.id === selectedContractId) ?? contracts[0],
+    [selectedContractId, contracts]
+  );
+
+  const activeContracts = useMemo(
+    () => contracts.filter((contract) => contract.status === "Active"),
+    [contracts]
   );
 
   const latestJobs = useMemo(() => {
@@ -135,20 +135,160 @@ export default function ClientOverviewContent() {
         : `${value} sats`
       : null;
 
+  const totalSpend = useMemo(
+    () => contracts.reduce((acc, contract) => acc + parseSats(contract.budget), 0),
+    [contracts]
+  );
+
+  const resolveFreelancerName = async (freelancerId: string, fallbackName: string) => {
+    const initialFallback = fallbackName?.trim() || "";
+    if (!freelancerId) return initialFallback || "Freelancer";
+    if (freelancerNameCache.current[freelancerId]) return freelancerNameCache.current[freelancerId];
+
+    let resolvedName = initialFallback;
+
+    try {
+      const allUsersSnap = await getDoc(doc(firebaseDb, "all_users", freelancerId));
+      if (allUsersSnap.exists()) {
+        const data = allUsersSnap.data() as any;
+        resolvedName = data.fullName ?? data.name ?? data.email ?? resolvedName;
+      }
+    } catch {
+      // Continue with freelancers collection lookup.
+    }
+
+    if (!resolvedName) {
+      try {
+        const freelancerDocSnap = await getDoc(doc(firebaseDb, "freelancers", freelancerId));
+        if (freelancerDocSnap.exists()) {
+          const data = freelancerDocSnap.data() as any;
+          const composedName = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
+          resolvedName = data.fullName || composedName || data.name || resolvedName;
+        }
+      } catch {
+        // Continue with UID-based lookup.
+      }
+    }
+
+    if (!resolvedName) {
+      try {
+        const freelancersByUidQuery = query(
+          collection(firebaseDb, "freelancers"),
+          where("uid", "==", freelancerId),
+          limit(1)
+        );
+        const freelancersByUidSnap = await getDocs(freelancersByUidQuery);
+        if (!freelancersByUidSnap.empty) {
+          const data = freelancersByUidSnap.docs[0].data() as any;
+          const composedName = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
+          resolvedName = data.fullName || composedName || data.name || resolvedName;
+        }
+      } catch {
+        // Keep fallback below.
+      }
+    }
+
+    const finalName = resolvedName || "Freelancer";
+    freelancerNameCache.current[freelancerId] = finalName;
+    return finalName;
+  };
+
   useEffect(() => {
+    let unsubscribeContracts: (() => void) | undefined;
     let unsubscribeJobs: (() => void) | undefined;
+    let isActive = true;
+
     const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (user) => {
       if (!user) {
+        if (unsubscribeContracts) unsubscribeContracts();
         if (unsubscribeJobs) unsubscribeJobs();
+        setContracts([]);
+        setSelectedContractId("");
+        setContractsLoading(false);
+        setContractsError("Please log in to view contracts.");
         setJobs([]);
         setSelectedJobId("");
         setJobsLoading(false);
         setJobsError("Please log in to view your job posts.");
+        setDisplayName('Client');
         return;
       }
 
+      // Load Profile Name
+      const loadProfile = async () => {
+        try {
+          const snap = await getDoc(doc(firebaseDb, 'all_users', user.uid));
+          const data = snap.exists() ? (snap.data() as any) : null;
+          setDisplayName(data?.fullName ?? user.displayName ?? 'Client');
+        } catch {
+          setDisplayName(user.displayName ?? 'Client');
+        }
+      };
+      loadProfile();
+
+      setContractsLoading(true);
+      setContractsError("");
       setJobsLoading(true);
       setJobsError("");
+
+      const contractsQuery = query(
+        collection(firebaseDb, "contracts"),
+        where("clientId", "==", user.uid)
+      );
+
+      unsubscribeContracts = onSnapshot(
+        contractsQuery,
+        (snapshot) => {
+          const hydrateContracts = async () => {
+            const items = await Promise.all(
+              snapshot.docs.map(async (docSnap) => {
+                const data = docSnap.data() as any;
+                const freelancerId = data.freelancerId ?? "";
+                const freelancer = await resolveFreelancerName(
+                  freelancerId,
+                  data.freelancerName ?? ""
+                );
+
+                return {
+                  id: docSnap.id,
+                  title: data.title ?? "Contract",
+                  freelancer,
+                  freelancerId,
+                  clientId: data.clientId ?? "",
+                  jobId: data.jobId ?? "",
+                  contractType: data.contractType ?? data.jobType ?? "Fixed Price",
+                  progress: typeof data.progress === "number" ? data.progress : 0,
+                  nextMilestone: data.nextMilestone ?? "-",
+                  status: (data.status as ContractStatus) ?? "Active",
+                  budget: formatSats(data.budget ?? "0"),
+                  startDate: formatDate(data.startDate),
+                  dueDate: formatDate(data.dueDate),
+                  description: data.description ?? "-",
+                  scopeItems: Array.isArray(data.scopeItems) ? data.scopeItems : [],
+                  milestones: Array.isArray(data.milestones) ? data.milestones : [],
+                } satisfies Contract;
+              })
+            );
+
+            if (!isActive) return;
+            setContracts(items);
+            setContractsLoading(false);
+            if (items.length) {
+              const latestActive = items.find((contract) => contract.status === "Active") ?? items[0];
+              if (latestActive?.id) {
+                setSelectedContractId((current) => current || latestActive.id);
+              }
+            }
+          };
+
+          hydrateContracts();
+        },
+        () => {
+          if (!isActive) return;
+          setContractsLoading(false);
+          setContractsError("Unable to load latest contracts.");
+        }
+      );
 
       const jobsQuery = query(
         collection(firebaseDb, "jobs"),
@@ -194,10 +334,19 @@ export default function ClientOverviewContent() {
     });
 
     return () => {
+      isActive = false;
       unsubscribeAuth();
+      if (unsubscribeContracts) unsubscribeContracts();
       if (unsubscribeJobs) unsubscribeJobs();
     };
   }, []);
+
+  const dynamicMetrics = [
+    { label: "Active Contracts", value: `${activeContracts.length}`, change: activeContracts.length ? "Live" : "None yet", tone: activeContracts.length ? "up" as const : "neutral" as const },
+    { label: "Open Job Posts", value: `${jobs.filter(j => j.status === 'Open').length}`, change: "Currently active", tone: "neutral" as const },
+    { label: "Total Spend", value: `${totalSpend.toLocaleString()} sats`, change: totalSpend ? "Across contracts" : "None yet", tone: totalSpend ? "up" as const : "neutral" as const },
+    { label: "Total Jobs Posted", value: `${jobs.length}`, change: "Lifetime posts", tone: "neutral" as const },
+  ];
 
   return (
     <section className="w-full">
@@ -208,7 +357,7 @@ export default function ClientOverviewContent() {
               Client Dashboard
             </div>
             <h1 className="mt-2 text-[26px] font-semibold tracking-[-0.02em] text-[#1a1a1a]">
-              Welcome back, Atlas Ventures
+              Welcome back, {displayName}
             </h1>
             <p className="mt-2 text-[12px] leading-[1.7] text-[#6b6762]">
               Track hiring momentum, manage contracts, and keep your Bitcoin initiatives moving.
@@ -218,7 +367,11 @@ export default function ClientOverviewContent() {
             <Button size="sm" variant="outline" className="rounded-full w-full sm:w-auto">
               View Reports
             </Button>
-            <Button size="sm" className="rounded-full w-full sm:w-auto">
+            <Button 
+              size="sm" 
+              className="rounded-full w-full sm:w-auto" 
+              onClick={() => window.location.href='/client/dashboard/job-posts?action=new'}
+            >
               Post New Job
             </Button>
           </div>
@@ -226,7 +379,7 @@ export default function ClientOverviewContent() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {METRICS.map((metric) => (
+        {dynamicMetrics.map((metric) => (
           <DashboardMetricCard
             key={metric.label}
             label={metric.label}
@@ -246,19 +399,33 @@ export default function ClientOverviewContent() {
             <span className="text-[11px] text-[#9e9690]">Updated today</span>
           </div>
           <div className="mt-4 flex flex-col gap-3">
-            {CONTRACTS.filter((c) => c.status === "Active").map((contract) => (
-              <button
-                key={contract.id}
-                type="button"
-                onClick={() => {
-                  setSelectedContractId(contract.id);
-                  setContractModalOpen(true);
-                }}
-                className="text-left"
-              >
-                <ClientContractCard {...contract} showDetailsHint={false} />
-              </button>
-            ))}
+            {contractsLoading ? (
+              <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4 text-[12px] text-[#6b6762]">
+                Loading latest contracts...
+              </div>
+            ) : contractsError ? (
+              <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FFF6F2] p-4 text-[12px] text-[#8C4F00]">
+                {contractsError}
+              </div>
+            ) : activeContracts.length > 0 ? (
+              activeContracts.map((contract) => (
+                <button
+                  key={contract.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedContractId(contract.id);
+                    setContractModalOpen(true);
+                  }}
+                  className="text-left"
+                >
+                  <ClientContractCard {...contract} showDetailsHint={false} />
+                </button>
+              ))
+            ) : (
+              <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4 text-[12px] text-[#6b6762]">
+                No active contracts yet.
+              </div>
+            )}
           </div>
         </div>
 
@@ -422,7 +589,6 @@ export default function ClientOverviewContent() {
               </div>
             </div>
 
-            {/* ✅ Description is cleaned and truncated — no raw error logs shown */}
             {selectedJob.description?.trim() ? (
               <div className="mt-4 rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-4 py-3 text-[12px] leading-[1.7] text-[#6b6762] line-clamp-4 overflow-y-auto break-words">
                 {selectedJob.description.replace(/\s{2,}/g, " ").trim()}
@@ -444,19 +610,25 @@ export default function ClientOverviewContent() {
             </div>
 
             <div className="mt-4 flex flex-col gap-3">
-              {proposals.map((proposal) => (
-                <ClientProposalCard
-                  key={proposal.id}
-                  {...proposal}
-                  isSelected={!!selectedProposals[proposal.id]}
-                  onToggle={() =>
-                    setSelectedProposals((prev) => ({
-                      ...prev,
-                      [proposal.id]: !prev[proposal.id],
-                    }))
-                  }
-                />
-              ))}
+              {proposals.length > 0 ? ( 
+                proposals.map((proposal) => (
+                  <ClientProposalCard
+                    key={proposal.id}
+                    {...proposal}
+                    isSelected={!!selectedProposals[proposal.id]}
+                    onToggle={() =>
+                      setSelectedProposals((prev) => ({
+                        ...prev,
+                        [proposal.id]: !prev[proposal.id],
+                      }))
+                    }
+                  />
+                ))
+              ) : (
+                <div className="text-[12px] text-[#9e9690] text-center py-8">
+                  No proposals yet.
+                </div>
+              )}
             </div>
           </div>
         </div>

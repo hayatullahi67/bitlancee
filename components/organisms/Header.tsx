@@ -164,7 +164,7 @@ export default function Header() {
               </Button>
               <Button
                 variant="ghost"
-                className="hidden sm:inline-flex rounded-full bg-[#F7931A] hover:bg-[#F7931A] px-6 py-2 shadow-sm font-medium text-white"
+                className="hidden sm:inline-flex rounded-full bg-[#F7931A] px-6 py-2 shadow-sm font-medium text-white"
                 href="/signup"
               >
                 Sign Up

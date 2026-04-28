@@ -30,16 +30,16 @@ const CLIENT_SIDEBAR_ITEMS: SidebarItem[] = [
       </svg>
     ),
   },
-  {
-    label: "Profile",
-    href: "/client/dashboard/profile",
-    icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-        <circle cx="12" cy="7" r="4" />
-      </svg>
-    ),
-  },
+  // {
+  //   label: "Profile",
+  //   href: "/client/dashboard/profile",
+  //   icon: (
+  //     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  //       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+  //       <circle cx="12" cy="7" r="4" />
+  //     </svg>
+  //   ),
+  // },
   {
     label: "Job Posts",
     href: "/client/dashboard/job-posts",
@@ -114,19 +114,70 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
   const [hasUnreadContracts, setHasUnreadContracts] = useState(false);
   const router = useRouter();
 
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+
   useEffect(() => {
-    const unsubscribe = firebaseAuth.onAuthStateChanged(async (user) => {
-      if (!user) return;
-      try {
-        const snap = await getDoc(doc(firebaseDb, "all_users", user.uid));
-        const data = snap.exists() ? (snap.data() as any) : null;
-        const fullName = data?.fullName ?? user.displayName ?? "Client";
-        setDisplayName(fullName);
-      } catch {
-        setDisplayName(user.displayName ?? "Client");
+    let unsubscribeProfile: (() => void) | undefined;
+
+    const unsubscribe = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) {
+        if (unsubscribeProfile) unsubscribeProfile();
+        setDisplayName("Client");
+        setAvatarUrl(null);
+        setAvatarLoadFailed(false);
+        return;
       }
+
+      setDisplayName(user.displayName ?? "Client");
+      setAvatarUrl(user.photoURL ?? null);
+      setAvatarLoadFailed(false);
+
+      unsubscribeProfile = onSnapshot(
+        doc(firebaseDb, "all_users", user.uid),
+        async (allUsersSnap) => {
+          try {
+            const allData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+            let clientData: any = {};
+
+            try {
+              const clientSnap = await getDoc(doc(firebaseDb, "clients", user.uid));
+              clientData = clientSnap.exists() ? (clientSnap.data() as any) : {};
+            } catch {
+              clientData = {};
+            }
+
+            setDisplayName(
+              clientData.fullName ??
+              allData.fullName ??
+              user.displayName ??
+              "Client"
+            );
+
+            const nextAvatarUrl =
+              clientData.avatarUrl ??
+              allData.avatarUrl ??
+              user.photoURL ??
+              null;
+
+            setAvatarUrl(nextAvatarUrl);
+            setAvatarLoadFailed(false);
+          } catch {
+            setDisplayName(user.displayName ?? "Client");
+            setAvatarUrl(user.photoURL ?? null);
+          }
+        },
+        () => {
+          setDisplayName(user.displayName ?? "Client");
+          setAvatarUrl(user.photoURL ?? null);
+        }
+      );
     });
-    return () => unsubscribe();
+
+    return () => {
+      unsubscribe();
+      if (unsubscribeProfile) unsubscribeProfile();
+    };
   }, []);
 
   useEffect(() => {
@@ -229,16 +280,16 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
 
         <Link href="/client/dashboard/profile" onClick={() => setIsOpen(false)} className="flex flex-col items-start gap-0.5 mb-10 px-1">
           <div className="w-14 h-14 rounded-full bg-[#e8dfd4] flex items-center justify-center mb-3 overflow-hidden border-2 border-white shadow-md">
-            <img
-              src="/assets/avatar.png"
-              alt="Client avatar"
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.style.display = "none";
-                target.parentElement!.innerHTML = `<div style="font-weight:700;color:#8C4F00;">${initials}</div>`;
-              }}
-            />
+            {avatarUrl && !avatarLoadFailed ? (
+              <img
+                src={avatarUrl}
+                alt="Client avatar"
+                className="w-full h-full object-cover"
+                onError={() => setAvatarLoadFailed(true)}
+              />
+            ) : (
+              <div className="font-bold text-[#8C4F00]">{initials}</div>
+            )}
           </div>
           <h3 className="text-base font-black text-[#1a1a1a] leading-tight">{displayName}</h3>
           <p className="text-[11px] font-black text-orange-600 uppercase tracking-widest">Client</p>
