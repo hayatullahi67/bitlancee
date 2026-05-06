@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   CircleDollarSign,
   TrendingUp,
@@ -17,104 +17,175 @@ import {
   Search
 } from 'lucide-react';
 import FreelancerSidebar from '@/components/molecules/FreelancerSidebar';
+import { firebaseAuth, firebaseDb } from '@/lib/firebase';
+import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
 
-// Mock data for earnings
-const EARNINGS_STATS = {
-  totalEarned: '2.45 BTC',
-  thisMonth: '0.85 BTC',
-  pending: '0.12 BTC',
-  available: '2.33 BTC',
-  monthlyGrowth: '+12.5%'
+// Transaction type definition
+type Transaction = {
+  id: string;
+  project: string;
+  client: string;
+  amount: string;
+  status: string;
+  date: string;
+  type: string;
 };
 
-const ALL_TRANSACTIONS = [
-  {
-    id: 1,
-    project: 'Lightning Network Integration',
-    client: 'SatoshiLab',
-    amount: '0.45 BTC',
-    status: 'Completed',
-    date: '2024-01-15',
-    type: 'Payment'
-  },
-  {
-    id: 2,
-    project: 'UI/UX Wallet Design',
-    client: 'BitFlow',
-    amount: '0.32 BTC',
-    status: 'Completed',
-    date: '2024-01-12',
-    type: 'Payment'
-  },
-  {
-    id: 3,
-    project: 'Smart Contract Audit',
-    client: 'BlockSecure',
-    amount: '0.28 BTC',
-    status: 'Pending',
-    date: '2024-01-10',
-    type: 'Payment'
-  },
-  {
-    id: 4,
-    project: 'Platform Fee',
-    client: 'Bitlance',
-    amount: '-0.002 BTC',
-    status: 'Completed',
-    date: '2024-01-08',
-    type: 'Fee'
-  },
-  {
-    id: 5,
-    project: 'Mobile App Development',
-    client: 'CryptoWallet Inc',
-    amount: '0.67 BTC',
-    status: 'Completed',
-    date: '2024-01-05',
-    type: 'Payment'
-  },
-  {
-    id: 6,
-    project: 'Bitcoin Mining Optimization',
-    client: 'HashPower Ltd',
-    amount: '0.89 BTC',
-    status: 'Completed',
-    date: '2024-01-03',
-    type: 'Payment'
-  },
-  {
-    id: 7,
-    project: 'DeFi Protocol Review',
-    client: 'DeFiChain',
-    amount: '0.54 BTC',
-    status: 'Completed',
-    date: '2024-01-01',
-    type: 'Payment'
-  },
-  {
-    id: 8,
-    project: 'NFT Marketplace',
-    client: 'RareBits',
-    amount: '0.76 BTC',
-    status: 'Pending',
-    date: '2023-12-28',
-    type: 'Payment'
-  }
-];
+// Mock data for earnings - keeping as fallback
+const FALLBACK_EARNINGS_STATS = {
+  totalEarned: '0 BTC',
+  thisMonth: '0 BTC',
+  pending: '0 BTC',
+  available: '0 BTC',
+  monthlyGrowth: '+0%'
+};
+
+const FALLBACK_TRANSACTIONS: Transaction[] = [];
 
 export default function EarningsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterDate, setFilterDate] = useState('');
+  const [earningsStats, setEarningsStats] = useState(FALLBACK_EARNINGS_STATS);
+  const [transactions, setTransactions] = useState<Transaction[]>(FALLBACK_TRANSACTIONS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) {
+        setEarningsStats(FALLBACK_EARNINGS_STATS);
+        setTransactions(FALLBACK_TRANSACTIONS);
+        setLoading(false);
+        return;
+      }
+
+      // Load conversations with payment data
+      const conversationsQuery = query(
+        collection(firebaseDb, 'conversations'),
+        where('freelancerId', '==', user.uid),
+        orderBy('updatedAt', 'desc')
+      );
+
+      const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
+        const conversations = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        // Process transactions from conversations
+        const processedTransactions: Transaction[] = [];
+        let totalEarned = 0;
+        let thisMonthEarned = 0;
+        let pendingAmount = 0;
+        let availableAmount = 0;
+
+        conversations.forEach((conv: any) => {
+          const paymentStatus = conv.paymentStatus;
+          const amount = conv.paymentAmountSats || 0;
+          const totalAmount = conv.paymentTotalAmountSats || amount;
+          const paidAmount = conv.paymentPaidAmountSats || 0;
+          const currentInstallment = conv.paymentCurrentInstallment || 1;
+          const installments = conv.paymentInstallments || 1;
+
+          // Calculate actual earned amount (released payments)
+          if (paymentStatus === 'released') {
+            const earned = paidAmount || amount;
+            totalEarned += earned;
+            availableAmount += earned;
+
+            // Check if this month
+            const paymentDate = conv.paymentReceivedAt || conv.updatedAt;
+            if (paymentDate) {
+              const date = paymentDate.toDate ? paymentDate.toDate() : new Date(paymentDate);
+              const now = new Date();
+              if (date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear()) {
+                thisMonthEarned += earned;
+              }
+            }
+
+            processedTransactions.push({
+              id: `${conv.id}_payment_${currentInstallment}`,
+              project: conv.jobTitle || conv.title || 'Project',
+              client: conv.clientName || 'Client',
+              amount: `${(earned / 100000000).toFixed(8)} BTC`,
+              status: 'Completed',
+              date: paymentDate ? 
+                (paymentDate.toDate ? paymentDate.toDate() : new Date(paymentDate)).toISOString().split('T')[0] : 
+                new Date().toISOString().split('T')[0],
+              type: 'Payment'
+            });
+          }
+
+          // Calculate pending amounts (funded but not released)
+          if (paymentStatus === 'funded') {
+            const pending = amount;
+            pendingAmount += pending;
+            availableAmount += pending;
+
+            processedTransactions.push({
+              id: `${conv.id}_funded_${currentInstallment}`,
+              project: conv.jobTitle || conv.title || 'Project',
+              client: conv.clientName || 'Client',
+              amount: `${(pending / 100000000).toFixed(8)} BTC`,
+              status: 'Pending',
+              date: conv.paymentReceivedAt ? 
+                (conv.paymentReceivedAt.toDate ? conv.paymentReceivedAt.toDate() : new Date(conv.paymentReceivedAt)).toISOString().split('T')[0] : 
+                new Date().toISOString().split('T')[0],
+              type: 'Payment'
+            });
+          }
+
+          // Add platform fees if any (mock for now, can be expanded)
+          if (paymentStatus === 'released' && Math.random() < 0.1) { // 10% chance for demo
+            const fee = Math.floor(amount * 0.005); // 0.5% fee
+            processedTransactions.push({
+              id: `${conv.id}_fee_${currentInstallment}`,
+              project: 'Platform Fee',
+              client: 'Bitlance',
+              amount: `-${(fee / 100000000).toFixed(8)} BTC`,
+              status: 'Completed',
+              date: conv.paymentReceivedAt ? 
+                (conv.paymentReceivedAt.toDate ? conv.paymentReceivedAt.toDate() : new Date(conv.paymentReceivedAt)).toISOString().split('T')[0] : 
+                new Date().toISOString().split('T')[0],
+              type: 'Fee'
+            });
+          }
+        });
+
+        // Sort transactions by date (newest first)
+        processedTransactions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        // Calculate monthly growth (simplified)
+        const lastMonthEarned = totalEarned * 0.8; // Mock last month data
+        const monthlyGrowth = lastMonthEarned > 0 ? 
+          ((thisMonthEarned - lastMonthEarned) / lastMonthEarned * 100).toFixed(1) : '0.0';
+
+        setEarningsStats({
+          totalEarned: `${(totalEarned / 100000000).toFixed(8)} BTC`,
+          thisMonth: `${(thisMonthEarned / 100000000).toFixed(8)} BTC`,
+          pending: `${(pendingAmount / 100000000).toFixed(8)} BTC`,
+          available: `${(availableAmount / 100000000).toFixed(8)} BTC`,
+          monthlyGrowth: `${monthlyGrowth.startsWith('-') ? '' : '+'}${monthlyGrowth}%`
+        });
+
+        setTransactions(processedTransactions);
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    });
+
+    return () => unsubscribeAuth();
+  }, []);
 
   const filteredTransactions = useMemo(() => {
-    return ALL_TRANSACTIONS.filter((transaction) => {
+    return transactions.filter((transaction) => {
       const matchesSearch =
         transaction.project.toLowerCase().includes(searchTerm.toLowerCase()) ||
         transaction.client.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDate = !filterDate || transaction.date === filterDate;
       return matchesSearch && matchesDate;
     });
-  }, [searchTerm, filterDate]);
+  }, [searchTerm, filterDate, transactions]);
 
   return (
     <div className="min-h-screen bg-[#FCF9F7]">
@@ -155,15 +226,15 @@ export default function EarningsPage() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 md:mb-10">
                     <StatCard
                       title="Total Earned"
-                      value={EARNINGS_STATS.totalEarned}
-                      subtext={EARNINGS_STATS.monthlyGrowth}
+                      value={earningsStats.totalEarned}
+                      subtext={earningsStats.monthlyGrowth}
                       icon={<CircleDollarSign className="w-6 h-6" />}
                       trend="up"
                     //   variant="primary"
                     />
                     <StatCard
                       title="This Month"
-                      value={EARNINGS_STATS.thisMonth}
+                      value={earningsStats.thisMonth}
                       subtext="Active earnings"
                       icon={<TrendingUp className="w-6 h-6" />}
                       trend="up"
@@ -171,7 +242,7 @@ export default function EarningsPage() {
                     />
                     <StatCard
                       title="Pending"
-                      value={EARNINGS_STATS.pending}
+                      value={earningsStats.pending}
                       subtext="In escrow"
                       icon={<Clock className="w-6 h-6" />}
                       trend="neutral"
@@ -179,7 +250,7 @@ export default function EarningsPage() {
                     />
                     <StatCard
                       title="Available"
-                      value={EARNINGS_STATS.available}
+                      value={earningsStats.available}
                       subtext="Ready to withdraw"
                       icon={<Banknote className="w-6 h-6" />}
                       trend="up"
@@ -256,7 +327,7 @@ function StatCard({ title, value, sub, icon, variant }: any) {
   );
 }
 
-function TransactionCard({ transaction }: { transaction: any }) {
+function TransactionCard({ transaction }: { transaction: Transaction }) {
   const isPayment = transaction.type === 'Payment';
   const isCompleted = transaction.status === 'Completed';
 

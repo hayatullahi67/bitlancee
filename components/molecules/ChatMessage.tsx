@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, JSX } from 'react';
 import { 
   FileText, 
   File, 
@@ -208,6 +208,58 @@ function DoubleCheckIcon({ className }: { className?: string }) {
   );
 }
 
+function formatMessageText(text: string) {
+  const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[\w\-\/\.\?\#\=\&\%]+)\)/g;
+  const urlRegex = /(https?:\/\/[^\s]+|\/[\w\-\/\.\?\#\=\&\%]+)/g;
+  const elements: Array<JSX.Element | string> = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  const pushTextWithUrls = (value: string) => {
+    const parts = value.split(urlRegex).filter(Boolean);
+    parts.forEach((part, index) => {
+      if (urlRegex.test(part)) {
+        elements.push(
+          <a
+            key={`link-${elements.length}-${index}`}
+            href={part}
+            className="inline-flex items-center rounded-full bg-[#CC7000] px-3 py-1 text-[#fff] underline-offset-4 transition-colors hover:bg-[#b45e00]"
+          >
+            {part}
+          </a>
+        );
+        return;
+      }
+      elements.push(part);
+    });
+  };
+
+  while ((match = markdownLinkRegex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      pushTextWithUrls(text.slice(lastIndex, match.index));
+    }
+
+    const [, label, url] = match;
+    elements.push(
+      <a
+        key={`markdown-link-${elements.length}`}
+        href={url}
+        className="inline-flex items-center rounded-full bg-[#CC7000] px-3 py-1 text-[#fff] underline-offset-4 transition-colors hover:bg-[#b45e00]"
+      >
+        {label}
+      </a>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    pushTextWithUrls(text.slice(lastIndex));
+  }
+
+  return elements;
+}
+
 export default function ChatMessage({ message, avatar, initials = 'SN' }: ChatMessageProps) {
   const isMe = message.sender === 'me';
 
@@ -233,7 +285,11 @@ export default function ChatMessage({ message, avatar, initials = 'SN' }: ChatMe
         ${isMe ? 'bg-[#CC7000] text-white rounded-br-md shadow-orange-950/10' : 'bg-white text-[#232323] border border-[#ece7df] rounded-bl-md shadow-gray-200'}
       `}
       >
-        {message.text ? <p className="text-sm leading-relaxed whitespace-pre-line break-words">{message.text}</p> : null}
+        {message.text ? (
+          <p className="text-sm leading-relaxed whitespace-pre-line break-words">
+            {formatMessageText(message.text)}
+          </p>
+        ) : null}
 
         {message.attachment ? <FileAttachment attachment={message.attachment} /> : null}
 

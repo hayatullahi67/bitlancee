@@ -55,6 +55,12 @@ const JOB_CATEGORIES = [
   "Project Management",
 ];
 
+const parseSats = (value: unknown) => {
+  if (typeof value === "number") return value;
+  const cleaned = String(value ?? "").replace(/[^0-9]/g, "");
+  return cleaned ? Number(cleaned) : 0;
+};
+
 export default function ClientJobPostsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -468,6 +474,7 @@ export default function ClientJobPostsContent() {
                         resolveFreelancerIdentity(proposal.freelancerId, proposal.name),
                       ]);
                       const conversationId = createConversationId(selectedJob.id, proposal.freelancerId);
+                      const paymentTotalAmountSats = parseSats(selectedJob.budget);
                       await setDoc(
                         doc(firebaseDb, "conversations", conversationId),
                         {
@@ -480,6 +487,8 @@ export default function ClientJobPostsContent() {
                           freelancerName: freelancerIdentity.name,
                           clientAvatarUrl: clientIdentity.avatarUrl,
                           freelancerAvatarUrl: freelancerIdentity.avatarUrl,
+                          paymentTotalAmountSats,
+                          paymentStatus: "unfunded",
                           createdBy: "client",
                           canFreelancerMessage: true,
                           unread: {
@@ -515,6 +524,7 @@ export default function ClientJobPostsContent() {
                   const freelancerIds = selected.map((p) => p.freelancerId);
                   const freelancerNames = selected.map((p) => p.name);
                   const clientId = firebaseAuth.currentUser?.uid ?? "";
+                  const paymentTotalAmountSats = parseSats(selectedJob.budget);
                   const clientIdentity = clientId
                     ? await resolveClientIdentity(clientId)
                     : { name: "Client", avatarUrl: "" };
@@ -543,6 +553,8 @@ export default function ClientJobPostsContent() {
                         title: selectedJob.title,
                         status: "Active",
                         budget: selectedJob.budget,
+                        paymentTotalAmountSats,
+                        paymentStatus: "unfunded",
                         progress: 0,
                         nextMilestone: "Kickoff & onboarding",
                         startDate: serverTimestamp(),
@@ -570,6 +582,8 @@ export default function ClientJobPostsContent() {
                         clientAvatarUrl: clientIdentity.avatarUrl,
                         freelancerAvatarUrl:
                           freelancerIdentityMap.get(proposal.freelancerId)?.avatarUrl ?? "",
+                        paymentTotalAmountSats,
+                        paymentStatus: "unfunded",
                         createdBy: "system",
                         canFreelancerMessage: true,
                         unread: {

@@ -1,52 +1,104 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Button from "@/components/atoms/Button";
 import DashboardMetricCard from "@/components/molecules/DashboardMetricCard";
+import { firebaseAuth, firebaseDb } from "@/lib/firebase";
+import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 
-const PAYMENTS = [
-  {
-    id: "INV-1042",
-    freelancer: "Nadia K.",
-    amount: "120,000 sats",
-    status: "Released",
-    date: "Apr 04, 2026",
-    method: "Lightning Invoice",
-    contract: "Payment Routing Optimizer",
-    memo: "Milestone 2 payout",
-    txRef: "LN-7G4K-88A2",
-  },
-  {
-    id: "INV-1039",
-    freelancer: "Solomon P.",
-    amount: "220,000 sats",
-    status: "Pending",
-    date: "Apr 01, 2026",
-    method: "Escrow Release",
-    contract: "Security Audit for LDK Gateway",
-    memo: "Final report approval",
-    txRef: "ESC-3F1Q-19H2",
-  },
-  {
-    id: "INV-1034",
-    freelancer: "Amina T.",
-    amount: "85,000 sats",
-    status: "Released",
-    date: "Mar 28, 2026",
-    method: "Lightning Invoice",
-    contract: "Merchant Onboarding Flow",
-    memo: "QA completion",
-    txRef: "LN-9P2M-44Z1",
-  },
-];
+// Fallback data
+const FALLBACK_PAYMENTS: any[] = [];
 
 export default function ClientPaymentsContent() {
-  const [selectedId, setSelectedId] = useState(PAYMENTS[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [payments, setPayments] = useState(FALLBACK_PAYMENTS);
+  const [loading, setLoading] = useState(true);
   const selectedPayment = useMemo(
-    () => PAYMENTS.find((payment) => payment.id === selectedId) ?? PAYMENTS[0],
-    [selectedId]
+    () => payments.find((payment) => payment.id === selectedId) ?? payments[0],
+    [selectedId, payments]
   );
+
+  useEffect(() => {
+    const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
+      if (!user) {
+        setPayments(FALLBACK_PAYMENTS);
+        setLoading(false);
+        return;
+      }
+
+      // Load conversations with payment data for client
+      const conversationsQuery = query(
+        collection(firebaseDb, 'conversations'),
+        where('clientId', '==', user.uid),
+        orderBy('updatedAt', 'desc')
+      );
+
+      const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
+        const conversations = snapshot.docs.map(doc => ({
+          id: doc.id,
+          ...doc.data()
+        }));
+
+        // Process payments from conversations
+        const processedPayments: any[] = [];
+
+        conversations.forEach((conv: any) => {
+          const paymentStatus = conv.paymentStatus;
+          const amount = conv.paymentAmountSats || 0;
+          const currentInstallment = conv.paymentCurrentInstallment || 1;
+          const installments = conv.paymentInstallments || 1;
+
+          // Only show payments that have invoices created or are funded
+          if ((paymentStatus === 'invoice_created' || paymentStatus === 'funded' || paymentStatus === 'released') && amount > 0) {
+            let status = "Pending";
+            let method = "Lightning Invoice";
+            let txRef = `LN-${conv.id.slice(-8).toUpperCase()}`;
+
+            if (paymentStatus === 'released') {
+              status = "Released";
+              method = "Escrow Release";
+              txRef = `ESC-${conv.id.slice(-8).toUpperCase()}`;
+            } else if (paymentStatus === 'funded') {
+              status = "Funded";
+            } else if (paymentStatus === 'invoice_created') {
+              status = "Invoice Created";
+            }
+
+            const paymentDate = conv.paymentReceivedAt || conv.updatedAt;
+            const date = paymentDate ? 
+              (paymentDate.toDate ? paymentDate.toDate() : new Date(paymentDate)) : 
+              new Date();
+
+            processedPayments.push({
+              id: `INV-${conv.id.slice(-6).toUpperCase()}-${currentInstallment}`,
+              freelancer: conv.freelancerName || conv.freelancer || "Freelancer",
+              amount: `${amount.toLocaleString()} sats`,
+              status,
+              date: date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+              method,
+              contract: conv.jobTitle || conv.title || "Project",
+              memo: `Milestone ${currentInstallment} of ${installments}`,
+              txRef,
+            });
+          }
+        });
+
+        // Sort by date (newest first)
+        processedPayments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+        setPayments(processedPayments);
+        if (processedPayments.length > 0 && !selectedId) {
+          setSelectedId(processedPayments[0].id);
+        }
+        setLoading(false);
+      });
+
+      return () => unsubscribe();
+    });
+
+    return () => unsubscribeAuth();
+  }, [selectedId]);
 
   return (
     <section className="w-full">
@@ -70,9 +122,24 @@ export default function ClientPaymentsContent() {
       </div>
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        <DashboardMetricCard label="Escrow Balance" value="640,000 sats" change="2 active milestones" tone="neutral" />
-        <DashboardMetricCard label="Pending Approvals" value="2" change="Review today" tone="down" />
-        <DashboardMetricCard label="Month Spend" value="1.1M sats" change="+12% vs Mar" tone="up" />
+        <DashboardMetricCard 
+          label="Escrow Balance" 
+          value={`${payments.filter(p => p.status === 'Funded').reduce((sum, p) => sum + parseInt(p.amount.replace(/[^0-9]/g, '')), 0).toLocaleString()} sats`} 
+          change={`${payments.filter(p => p.status === 'Funded').length} active milestones`} 
+          tone="neutral" 
+        />
+        <DashboardMetricCard 
+          label="Pending Approvals" 
+          value={payments.filter(p => p.status === 'Funded').length.toString()} 
+          change="Review today" 
+          tone="down" 
+        />
+        <DashboardMetricCard 
+          label="Month Spend" 
+          value={`${payments.filter(p => p.status === 'Released').reduce((sum, p) => sum + parseInt(p.amount.replace(/[^0-9]/g, '')), 0).toLocaleString()} sats`} 
+          change="+12% vs Mar" 
+          tone="up" 
+        />
       </div>
 
       <div className="mt-8 rounded-[12px] border border-[#EAE7E2] bg-white p-5">
@@ -80,7 +147,10 @@ export default function ClientPaymentsContent() {
           Recent Invoices
         </div>
         <div className="flex flex-col gap-3">
-          {PAYMENTS.map((payment) => (
+          {loading ? (
+            <div className="text-center py-8 text-[#6b6762]">Loading payments...</div>
+          ) : payments.length > 0 ? (
+            payments.map((payment) => (
             <button
               key={payment.id}
               type="button"
@@ -100,7 +170,10 @@ export default function ClientPaymentsContent() {
                 {payment.status}
               </div>
             </button>
-          ))}
+          ))
+          ) : (
+            <div className="text-center py-8 text-[#6b6762]">No payments found.</div>
+          )}
         </div>
       </div>
 

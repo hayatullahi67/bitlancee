@@ -1,10 +1,10 @@
 
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import FreelancerSidebar from '@/components/molecules/FreelancerSidebar';
 import { firebaseAuth, firebaseDb } from '@/lib/firebase';
 import { onAuthStateChanged, sendPasswordResetEmail, deleteUser } from 'firebase/auth';
-import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
@@ -12,6 +12,8 @@ export default function SettingsPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const saveMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [accountSettings, setAccountSettings] = useState({
     notifications: {
       email: true,
@@ -19,6 +21,9 @@ export default function SettingsPage() {
     },
     privacy: {
       showProfile: true
+    },
+    payment: {
+      lightningAddress: ''
     }
   });
 
@@ -34,6 +39,14 @@ export default function SettingsPage() {
     });
     return () => unsubscribe();
   }, [router]);
+
+  useEffect(() => {
+    return () => {
+      if (saveMessageTimeout.current) {
+        clearTimeout(saveMessageTimeout.current);
+      }
+    };
+  }, []);
 
   // 2. Load Real Data from Firestore
   const loadUserSettings = async (uid: string) => {
@@ -54,19 +67,23 @@ export default function SettingsPage() {
 
   // 3. Save to Firestore (Auto-save pattern)
   const saveSettings = async (newSettings: typeof accountSettings) => {
-    if (!currentUser) return;
+    if (!currentUser) return false;
     setSaving(true);
     try {
       const userRef = doc(firebaseDb, 'all_users', currentUser.uid);
       const freelancerRef = doc(firebaseDb, 'freelancers', currentUser.uid);
-      
-      const updateData = { settings: newSettings };
-      
-      // Update both collections to keep data consistent
-      await updateDoc(userRef, updateData);
-      await updateDoc(freelancerRef, updateData);
+      const updateData = {
+        settings: newSettings,
+        updatedAt: serverTimestamp(),
+      };
+
+      // Merge the settings into existing documents; create them if they don't exist.
+      await setDoc(userRef, updateData, { merge: true });
+      await setDoc(freelancerRef, updateData, { merge: true });
+      return true;
     } catch (error) {
       console.error("Error saving settings:", error);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -82,6 +99,26 @@ export default function SettingsPage() {
     };
     setAccountSettings(updatedSettings as any);
     saveSettings(updatedSettings as any);
+  };
+
+  const handleLightningAddressChange = async (value: string) => {
+    const updatedSettings = {
+      ...accountSettings,
+      payment: {
+        ...accountSettings.payment,
+        lightningAddress: value,
+      },
+    };
+    setAccountSettings(updatedSettings);
+    const saved = await saveSettings(updatedSettings);
+
+    if (saved) {
+      setSaveMessage('Lightning address stored successfully.');
+      if (saveMessageTimeout.current) {
+        clearTimeout(saveMessageTimeout.current);
+      }
+      saveMessageTimeout.current = setTimeout(() => setSaveMessage(''), 3000);
+    }
   };
 
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -239,22 +276,26 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Privacy */}
+                {/* Payment Settings */}
                 <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-                  <h3 className="text-lg font-bold text-slate-900 mb-6">Privacy Settings</h3>
+                  <h3 className="text-lg font-bold text-slate-900 mb-6">Payment Settings</h3>
                   <div className="space-y-4">
-                    <label className="flex items-center justify-between cursor-pointer group">
-                      <div>
-                        <span className="text-sm font-medium text-slate-700">Show profile to clients</span>
-                        <p className="text-xs text-gray-500">Allow potential clients to view your profile</p>
-                      </div>
+                    <div>
+                      <label className="text-sm font-medium text-slate-700">Lightning Wallet Address</label>
+                      <p className="text-xs text-gray-500 mb-3">Add your Lightning Network address to receive instant payments when clients approve your work</p>
                       <input
-                        type="checkbox"
-                        checked={accountSettings.privacy.showProfile}
-                        onChange={(e) => handleToggle('privacy', 'showProfile', e.target.checked)}
-                        className="w-10 h-5 rounded-full appearance-none bg-gray-200 checked:bg-orange-600 relative transition-colors cursor-pointer before:content-[''] before:absolute before:w-4 before:h-4 before:bg-white before:rounded-full before:top-0.5 before:left-0.5 checked:before:left-5.5 before:transition-all"
+                        type="text"
+                        placeholder="lnbc1..."
+                        value={accountSettings.payment.lightningAddress}
+                        onChange={(e) => handleLightningAddressChange(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                       />
-                    </label>
+                      {saveMessage ? (
+                        <p className="mt-2 text-sm text-green-600">{saveMessage}</p>
+                      ) : (
+                        <p className="text-xs text-gray-400 mt-2">Your Lightning address will be used for milestone payments. Make sure it's correct!</p>
+                      )}
+                    </div>
                   </div>
                 </div>
 

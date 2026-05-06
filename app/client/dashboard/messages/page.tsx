@@ -16,6 +16,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
   updateDoc,
   where,
 } from "firebase/firestore";
@@ -70,6 +71,23 @@ type Conversation = {
   };
   unread?: Record<string, number>;
   otherOnline?: boolean;
+  paymentStatus?: "unfunded" | "invoice_created" | "funded" | "released" | "disputed" | "expired";
+  paymentAmountSats?: number;
+  paymentTotalAmountSats?: number;
+  paymentInstallments?: number;
+  paymentCurrentInstallment?: number;
+  paymentPaidAmountSats?: number;
+  paymentRequest?: string;
+  paymentHash?: string;
+  workStatus?: "not_started" | "in_progress" | "submitted" | "changes_requested" | "approved" | "completed";
+  submissionMessage?: string;
+  submissionLink?: string;
+  submissionAttachment?: {
+    name?: string;
+    url?: string;
+  } | null;
+  submissionReviewDueAt?: any;
+  revisionMessage?: string;
 };
 
 const formatTimestamp = (value?: any) => {
@@ -77,6 +95,34 @@ const formatTimestamp = (value?: any) => {
   if (!seconds) return "";
   const date = new Date(seconds * 1000);
   return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+};
+
+const formatDate = (value?: any) => {
+  if (!value) return "";
+  const date = value?.seconds ? new Date(value.seconds * 1000) : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+};
+
+const parseSats = (value: unknown) => {
+  if (typeof value === "number") return value;
+  const cleaned = String(value ?? "").replace(/[^0-9]/g, "");
+  return cleaned ? Number(cleaned) : 0;
+};
+
+const clampInstallments = (value: unknown) => {
+  const count = Number(value);
+  if (!Number.isFinite(count)) return 1;
+  return Math.max(1, Math.min(3, Math.trunc(count)));
+};
+
+const calculateInstallmentAmount = (total: number, installments: number, installment: number) => {
+  const safeTotal = Math.max(0, Math.trunc(total));
+  const safeInstallments = clampInstallments(installments);
+  const safeInstallment = Math.max(1, Math.min(safeInstallments, Math.trunc(installment)));
+  const base = Math.floor(safeTotal / safeInstallments);
+  const remainder = safeTotal % safeInstallments;
+  return base + (safeInstallment <= remainder ? 1 : 0);
 };
 
 export default function ClientMessagesPage() {
@@ -152,6 +198,20 @@ export default function ClientMessagesPage() {
             lastMessage: data.lastMessage ?? {},
             unread: data.unread ?? {},
             otherOnline: presenceMap[freelancerId] ?? false,
+            paymentStatus: data.paymentStatus ?? "unfunded",
+            paymentAmountSats: Number(data.paymentAmountSats ?? 0),
+            paymentTotalAmountSats: Number(data.paymentTotalAmountSats ?? 0),
+            paymentInstallments: Number(data.paymentInstallments ?? 0),
+            paymentCurrentInstallment: Number(data.paymentCurrentInstallment ?? 0),
+            paymentPaidAmountSats: Number(data.paymentPaidAmountSats ?? 0),
+            paymentRequest: data.paymentRequest ?? "",
+            paymentHash: data.paymentHash ?? "",
+            workStatus: data.workStatus ?? "not_started",
+            submissionMessage: data.submissionMessage ?? "",
+            submissionLink: data.submissionLink ?? "",
+            submissionAttachment: data.submissionAttachment ?? null,
+            submissionReviewDueAt: data.submissionReviewDueAt,
+            revisionMessage: data.revisionMessage ?? "",
           } as Conversation;
         }));
         setConversations(items);
@@ -317,6 +377,202 @@ export default function ClientMessagesPage() {
     });
   };
 
+  const handleCreatePaymentInvoice = async (installments = 1) => {
+    if (!selectedConversation || !currentUserId) return;
+
+    const contractId =
+      selectedConversation.jobId && selectedConversation.freelancerId
+        ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
+        : selectedConversation.id;
+
+    const contractSnap = await getDoc(doc(firebaseDb, "contracts", contractId));
+    const contractData = contractSnap.exists() ? (contractSnap.data() as any) : {};
+    const paidAmount = selectedConversation.paymentPaidAmountSats || Number(contractData.paymentPaidAmountSats ?? 0) || 0;
+    const totalAmount =
+      selectedConversation.paymentTotalAmountSats ||
+      Number(contractData.paymentTotalAmountSats ?? 0) ||
+      parseSats(contractData.budget) ||
+      parseSats(contractData.amount) ||
+      selectedConversation.paymentAmountSats ||
+      0;
+    const paymentInstallments =
+      paidAmount > 0
+        ? selectedConversation.paymentInstallments ||
+          Number(contractData.paymentInstallments ?? 0) ||
+          clampInstallments(installments)
+        : clampInstallments(installments);
+    const currentInstallment =
+      paidAmount > 0 && selectedConversation.paymentStatus === "funded"
+        ? Math.min(
+            paymentInstallments,
+            (selectedConversation.paymentCurrentInstallment || Number(contractData.paymentCurrentInstallment ?? 1) || 1) + 1
+          )
+        : paidAmount > 0
+          ? selectedConversation.paymentCurrentInstallment ||
+            Number(contractData.paymentCurrentInstallment ?? 0) ||
+            1
+          : 1;
+    const amount = calculateInstallmentAmount(totalAmount, paymentInstallments, currentInstallment);
+
+    if (!totalAmount || !amount) {
+      throw new Error("Contract amount is missing. Add a budget before creating invoice.");
+    }
+
+    const res = await fetch("/api/create-invoice", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ amount }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data?.error ?? "Unable to create Blink invoice.");
+    }
+
+    const errors = data?.data?.lnInvoiceCreate?.errors ?? [];
+    if (errors.length) {
+      throw new Error(errors[0]?.message ?? "Blink could not create the invoice.");
+    }
+
+    const invoice = data?.data?.lnInvoiceCreate?.invoice;
+    const paymentRequest = invoice?.paymentRequest;
+    const paymentHash = invoice?.paymentHash;
+
+    if (!paymentRequest) {
+      throw new Error("Blink did not return a Lightning payment request.");
+    }
+
+    const paymentUpdate = {
+      paymentProvider: "blink",
+      paymentStatus: "invoice_created",
+      paymentTotalAmountSats: totalAmount,
+      paymentInstallments,
+      paymentCurrentInstallment: currentInstallment,
+      paymentAmountSats: Number(invoice?.satoshis ?? amount),
+      paymentRequest,
+      paymentHash: paymentHash ?? "",
+      paymentCreatedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+
+    await Promise.all([
+      updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
+        ...paymentUpdate,
+        "lastMessage.text": `Lightning invoice created for milestone ${currentInstallment} of ${paymentInstallments}.`,
+        "lastMessage.senderId": "system",
+        "lastMessage.createdAt": serverTimestamp(),
+        [`unread.${currentUserId}`]: 0,
+        [`unread.${selectedConversation.freelancerId}`]: increment(1),
+      }),
+      setDoc(
+        doc(firebaseDb, "contracts", contractId),
+        {
+          ...paymentUpdate,
+          escrowAmount: Number(invoice?.satoshis ?? amount),
+        },
+        { merge: true }
+      ),
+      addDoc(collection(firebaseDb, "conversations", selectedConversation.id, "messages"), {
+        senderId: "system",
+        senderRole: "system",
+        text: `Lightning invoice created for milestone ${currentInstallment} of ${paymentInstallments}. Freelancer should wait for funding confirmation before starting this phase.`,
+        attachment: null,
+        createdAt: serverTimestamp(),
+      }),
+    ]);
+
+    return paymentRequest;
+  };
+
+  const handleVerifyPayment = async (
+    paymentRequestOverride?: string
+  ): Promise<"funded" | "pending" | "expired"> => {
+    if (!selectedConversation) return "pending";
+    const paymentRequestToCheck = paymentRequestOverride || selectedConversation?.paymentRequest;
+    if (!paymentRequestToCheck || !currentUserId) return "pending";
+
+    const res = await fetch("/api/check-invoice", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ paymentRequest: paymentRequestToCheck }),
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data?.error ?? "Unable to verify Blink invoice.");
+    }
+
+    const statusPayload = data?.data?.lnInvoicePaymentStatusByPaymentRequest;
+    const blinkStatus = statusPayload?.status;
+
+    if (blinkStatus === "PAID") {
+      const paymentInstallments = selectedConversation.paymentInstallments || 1;
+      const currentInstallment = selectedConversation.paymentCurrentInstallment || 1;
+      const paidAmount =
+        (selectedConversation.paymentPaidAmountSats || 0) +
+        (selectedConversation.paymentAmountSats || 0);
+      const allMilestonesFunded = currentInstallment >= paymentInstallments;
+      const contractId =
+        selectedConversation.jobId && selectedConversation.freelancerId
+          ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
+          : selectedConversation.id;
+      const fundedUpdate = {
+        paymentStatus: "funded",
+        workStatus: "in_progress",
+        paymentInstallments,
+        paymentCurrentInstallment: currentInstallment,
+        paymentPaidAmountSats: paidAmount,
+        paymentReceivedAt: serverTimestamp(),
+        paymentPreimage: statusPayload?.paymentPreimage ?? "",
+        paymentHash: statusPayload?.paymentHash ?? selectedConversation.paymentHash ?? "",
+        updatedAt: serverTimestamp(),
+      };
+      const fundedMessage = allMilestonesFunded
+        ? "Payment received. Escrow is funded and work can start."
+        : `Milestone ${currentInstallment} of ${paymentInstallments} is funded. Create the next milestone invoice when ready.`;
+      const systemMessageId = `payment_funded_${currentInstallment}_${statusPayload?.paymentHash ?? selectedConversation.id}`;
+
+      await Promise.all([
+        updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
+          ...fundedUpdate,
+          "lastMessage.text": fundedMessage,
+          "lastMessage.senderId": "system",
+          "lastMessage.createdAt": serverTimestamp(),
+          [`unread.${currentUserId}`]: 0,
+          [`unread.${selectedConversation.freelancerId}`]: increment(1),
+        }),
+        setDoc(doc(firebaseDb, "contracts", contractId), fundedUpdate, { merge: true }),
+        setDoc(
+          doc(firebaseDb, "conversations", selectedConversation.id, "messages", systemMessageId),
+          {
+            senderId: "system",
+            senderRole: "system",
+            text: fundedMessage,
+            attachment: null,
+            createdAt: serverTimestamp(),
+          },
+          { merge: true }
+        ),
+      ]);
+
+      return "funded";
+    }
+
+    if (blinkStatus === "EXPIRED") {
+      await updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
+        paymentStatus: "expired",
+        updatedAt: serverTimestamp(),
+      });
+      return "expired";
+    }
+
+    return "pending";
+  };
+
   return (
     <div className="min-h-screen bg-[#F7F6F3] font-sans">
       <div className="flex">
@@ -345,12 +601,23 @@ export default function ClientMessagesPage() {
               pt-2 md:pt-0
             `}
             >
-              {selectedMessage ? (
+              {selectedMessage && selectedConversation ? (
                 <ChatView
                   message={selectedMessage}
                   chatMessages={chatMessages}
                   onBack={() => setSelectedChat(null)}
                   onSendMessage={handleSendMessage}
+                  viewerRole="client"
+                  paymentStatus={selectedConversation.paymentStatus}
+                  paymentAmountSats={selectedConversation.paymentAmountSats}
+                  paymentTotalAmountSats={selectedConversation.paymentTotalAmountSats}
+                  paymentInstallments={selectedConversation.paymentInstallments}
+                  paymentCurrentInstallment={selectedConversation.paymentCurrentInstallment}
+                  paymentPaidAmountSats={selectedConversation.paymentPaidAmountSats}
+                  paymentRequest={selectedConversation.paymentRequest}
+                  workStatus={selectedConversation.workStatus}
+                  onCreatePaymentInvoice={handleCreatePaymentInvoice}
+                  onVerifyPayment={handleVerifyPayment}
                 />
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-500">

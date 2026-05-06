@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Button from "@/components/atoms/Button";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { collection, doc, getDoc, getDocs, limit, onSnapshot, query, serverTimestamp, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, increment, limit, onSnapshot, query, serverTimestamp, setDoc, updateDoc, where } from "firebase/firestore";
 
 type ContractStatus = "Active" | "Review" | "Completed";
 
@@ -24,6 +24,18 @@ type Contract = {
   startDate: string;
   dueDate: string;
   description: string;
+  paymentStatus?: "unfunded" | "invoice_created" | "funded" | "released" | "expired";
+  paymentInstallments?: number;
+  paymentCurrentInstallment?: number;
+  workStatus?: "not_started" | "in_progress" | "submitted" | "changes_requested" | "approved" | "completed";
+  submissionMessage?: string;
+  submissionLink?: string;
+  submissionAttachment?: {
+    name?: string;
+    url?: string;
+  } | null;
+  submissionReviewDueAt?: any;
+  revisionMessage?: string;
   scopeItems?: string[];
   milestones?: Array<{
     name: string;
@@ -31,6 +43,21 @@ type Contract = {
     deadline: string;
     status: "Pending" | "In Progress" | "Approved";
   }>;
+  createdAt?: any;
+  updatedAt?: any;
+};
+
+type SubmittedJob = {
+  id: string;
+  contractId: string;
+  description: string;
+  link?: string;
+  attachment?: {
+    name: string;
+    url: string;
+  };
+  submittedAt: Date;
+  status: "pending" | "approved" | "rejected";
 };
 
 const formatDate = (value: any) => {
@@ -43,6 +70,12 @@ const formatDate = (value: any) => {
 const formatSats = (value: string) =>
   value.toLowerCase().includes("sats") ? value : `${value} sats`;
 
+const parseSats = (value: unknown) => {
+  if (typeof value === "number") return value;
+  const cleaned = String(value ?? "").replace(/[^0-9]/g, "");
+  return cleaned ? Number(cleaned) : 0;
+};
+
 export default function FreelancerContractsContent() {
   const router = useRouter();
   const [view, setView] = useState<"active" | "ongoing">("active");
@@ -51,6 +84,15 @@ export default function FreelancerContractsContent() {
   const [contracts, setContracts] = useState<Contract[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [workMessage, setWorkMessage] = useState("");
+  const [workLink, setWorkLink] = useState("");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionSuccess, setSubmissionSuccess] = useState("");
+  const [submissionError, setSubmissionError] = useState("");
+  const [activeTab, setActiveTab] = useState<'contracts' | 'submitted'>('contracts');
+  const [submittedJobs, setSubmittedJobs] = useState<SubmittedJob[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
   const clientNameCache = useRef<Record<string, string>>({});
   const clientAvatarCache = useRef<Record<string, string>>({});
@@ -151,11 +193,108 @@ export default function FreelancerContractsContent() {
     return avatarUrl;
   };
 
+  const uploadContractFile = async (file: File) => {
+    const idToken = await firebaseAuth.currentUser?.getIdToken();
+    if (!idToken) throw new Error("Please log in before uploading files.");
+    const formData = new FormData();
+    formData.append("file", file);
+    const uploadResponse = await fetch("/api/chat/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}` },
+      body: formData,
+    });
+    const uploadPayload = (await uploadResponse.json()) as any;
+    if (!uploadResponse.ok || !uploadPayload?.url) {
+      throw new Error(uploadPayload?.error || "Failed to upload attachment.");
+    }
+    return {
+      url: uploadPayload.url,
+      name: uploadPayload.name ?? file.name,
+      bytes: uploadPayload.bytes ?? file.size,
+      size: uploadPayload.size ?? file.size,
+      mimeType: uploadPayload.mimeType ?? file.type,
+      resourceType: uploadPayload.resourceType ?? "auto",
+      publicId: uploadPayload.publicId ?? "",
+    };
+  };
+
+  const handleSubmitWork = async () => {
+    if (!selectedContract || !selectedContract.clientId || !selectedContract.freelancerId) return;
+    setIsSubmitting(true);
+    setSubmissionError("");
+    setSubmissionSuccess("");
+
+    try {
+      const attachment = selectedFile ? await uploadContractFile(selectedFile) : null;
+      const contractUrl = `/client/dashboard/contracts?contract=${selectedContract.id}`;
+      const notificationText = `Work for "${selectedContract.title}" has been submitted for review. [Check it out](${contractUrl})`;
+      const messageText = notificationText;
+
+      // Add to submitted_jobs collection
+      const submissionData = {
+        contractId: selectedContract.id,
+        freelancerId: selectedContract.freelancerId,
+        description: workMessage || "Work submitted for review.",
+        link: workLink || "",
+        attachment: attachment,
+        submittedAt: serverTimestamp(),
+        status: "pending",
+      };
+
+      // Update contract workStatus
+      const contractUpdate = {
+        workStatus: "submitted",
+        updatedAt: serverTimestamp(),
+      };
+
+      const conversationId =
+        selectedContract.jobId && selectedContract.freelancerId
+          ? `${selectedContract.jobId}_${selectedContract.freelancerId}`
+          : selectedContract.id;
+
+      await Promise.all([
+        addDoc(collection(firebaseDb, "submitted_jobs"), submissionData),
+        setDoc(doc(firebaseDb, "contracts", selectedContract.id), contractUpdate, { merge: true }),
+        setDoc(
+          doc(firebaseDb, "conversations", conversationId),
+          {
+            "lastMessage.text": notificationText,
+            "lastMessage.senderId": selectedContract.freelancerId,
+            "lastMessage.createdAt": serverTimestamp(),
+            [`unread.${selectedContract.clientId}`]: increment(1),
+            [`unread.${selectedContract.freelancerId}`]: 0,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        ),
+        addDoc(collection(firebaseDb, "conversations", conversationId, "messages"), {
+          senderId: selectedContract.freelancerId,
+          senderRole: "freelancer",
+          text: messageText,
+          messageType: "work_submission",
+          createdAt: serverTimestamp(),
+        }),
+      ]);
+
+      setSubmissionSuccess("Work submitted for review.");
+      setWorkMessage("");
+      setWorkLink("");
+      setSelectedFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (error) {
+      setSubmissionError("Unable to submit work. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   useEffect(() => {
     let unsubscribeContracts: (() => void) | undefined;
+    let unsubscribeSubmitted: (() => void) | undefined;
     const unsubscribeAuth = onAuthStateChanged(firebaseAuth, (user) => {
       if (!user) {
         if (unsubscribeContracts) unsubscribeContracts();
+        if (unsubscribeSubmitted) unsubscribeSubmitted();
         setContracts([]);
         setSelectedId("");
         setLoading(false);
@@ -188,8 +327,19 @@ export default function FreelancerContractsContent() {
               startDate: formatDate(data.startDate),
               dueDate: formatDate(data.dueDate),
               description: data.description ?? "-",
+              paymentStatus: data.paymentStatus ?? "unfunded",
+              paymentInstallments: Number(data.paymentInstallments ?? 1),
+              paymentCurrentInstallment: Number(data.paymentCurrentInstallment ?? 1),
+              workStatus: data.workStatus ?? "not_started",
+              submissionMessage: data.submissionMessage ?? "",
+              submissionLink: data.submissionLink ?? "",
+              submissionAttachment: data.submissionAttachment ?? null,
+              submissionReviewDueAt: data.submissionReviewDueAt,
+              revisionMessage: data.revisionMessage ?? "",
               scopeItems: Array.isArray(data.scopeItems) ? data.scopeItems : [],
               milestones: Array.isArray(data.milestones) ? data.milestones : [],
+              createdAt: data.createdAt,
+              updatedAt: data.updatedAt,
             };
           });
           const hydrateClientNames = async () => {
@@ -202,6 +352,12 @@ export default function FreelancerContractsContent() {
                 ),
               }))
             );
+            // Sort by latest first (assuming updatedAt or createdAt exists)
+            hydrated.sort((a, b) => {
+              const aDate = a.updatedAt || a.createdAt || 0;
+              const bDate = b.updatedAt || b.createdAt || 0;
+              return bDate - aDate;
+            });
             setContracts(hydrated);
             setLoading(false);
             if (!selectedId && hydrated.length) setSelectedId(hydrated[0].id);
@@ -213,10 +369,40 @@ export default function FreelancerContractsContent() {
           setErrorMessage("Unable to load contracts.");
         }
       );
+
+      // Load submitted jobs
+      const submittedQuery = query(
+        collection(firebaseDb, "submitted_jobs"),
+        where("freelancerId", "==", user.uid)
+      );
+      unsubscribeSubmitted = onSnapshot(
+        submittedQuery,
+        (snapshot) => {
+          const items: SubmittedJob[] = snapshot.docs.map((docSnap) => {
+            const data = docSnap.data() as any;
+            return {
+              id: docSnap.id,
+              contractId: data.contractId ?? "",
+              description: data.description ?? "",
+              link: data.link ?? "",
+              attachment: data.attachment ?? null,
+              submittedAt: data.submittedAt?.toDate() ?? new Date(),
+              status: data.status ?? "pending",
+            };
+          });
+          // Sort by latest first
+          items.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+          setSubmittedJobs(items);
+        },
+        () => {
+          // Handle error if needed
+        }
+      );
     });
     return () => {
       unsubscribeAuth();
       if (unsubscribeContracts) unsubscribeContracts();
+      if (unsubscribeSubmitted) unsubscribeSubmitted();
     };
   }, [selectedId]);
 
@@ -258,11 +444,39 @@ export default function FreelancerContractsContent() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
-              Contracts
+              {activeTab === 'contracts' ? 'Contracts' : 'Submitted Jobs'}
             </div>
-            <div className="text-[12px] text-[#6b6762]">Switch between active and ongoing work.</div>
+            <div className="text-[12px] text-[#6b6762]">
+              {activeTab === 'contracts' ? 'Switch between active and ongoing work.' : 'View your submitted work for review.'}
+            </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveTab('contracts')}
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                activeTab === 'contracts'
+                  ? "bg-white text-[#1a1a1a] shadow-sm"
+                  : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
+              }`}
+            >
+              Contracts
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('submitted')}
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                activeTab === 'submitted'
+                  ? "bg-white text-[#1a1a1a] shadow-sm"
+                  : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
+              }`}
+            >
+              Submitted Jobs
+            </button>
+          </div>
+        </div>
+        {activeTab === 'contracts' && (
+          <div className="mt-4 flex items-center gap-2">
             <button
               type="button"
               onClick={() => setView("active")}
@@ -286,46 +500,94 @@ export default function FreelancerContractsContent() {
               Ongoing
             </button>
           </div>
-        </div>
+        )}
         <div className="mt-4 grid grid-cols-1 gap-4">
-          {loading ? (
-            <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
-              Loading contracts...
-            </div>
-          ) : errorMessage ? (
-            <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FFF6F2] p-4 text-[12px] text-[#8C4F00]">
-              {errorMessage}
-            </div>
-          ) : visibleContracts.length ? (
-            visibleContracts.map((contract) => (
-              <button
-                key={contract.id}
-                type="button"
-                onClick={() => {
-                  setSelectedId(contract.id);
-                  setIsModalOpen(true);
-                }}
-                className="text-left rounded-[12px] border border-[#EAE7E2] bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[14px] font-semibold text-[#1a1a1a]">{contract.title}</div>
-                    <div className="text-[12px] text-[#9e9690]">Client: {contract.clientName}</div>
-                    <div className="mt-2 text-[11px] text-[#6b6762]">{contract.nextMilestone}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-[12px] font-semibold text-[#8C4F00]">{contract.budget}</div>
-                    <div className="mt-2 text-[10px] uppercase tracking-[0.1em] text-[#6b6762]">
-                      {contract.status}
+          {activeTab === 'contracts' ? (
+            <>
+              {loading ? (
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
+                  Loading contracts...
+                </div>
+              ) : errorMessage ? (
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-[#FFF6F2] p-4 text-[12px] text-[#8C4F00]">
+                  {errorMessage}
+                </div>
+              ) : visibleContracts.length ? (
+                visibleContracts.map((contract) => (
+                  <button
+                    key={contract.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(contract.id);
+                      setIsModalOpen(true);
+                    }}
+                    className="text-left rounded-[12px] border border-[#EAE7E2] bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[14px] font-semibold text-[#1a1a1a]">{contract.title}</div>
+                        <div className="text-[12px] text-[#9e9690]">Client: {contract.clientName}</div>
+                        <div className="mt-2 text-[11px] text-[#6b6762]">{contract.nextMilestone}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-[12px] font-semibold text-[#8C4F00]">{contract.budget}</div>
+                        <div className="mt-2 text-[10px] uppercase tracking-[0.1em] text-[#6b6762]">
+                          {contract.status}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))
+              ) : (
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
+                  No contracts in this view yet.
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              {submittedJobs.length ? (
+                submittedJobs.map((job) => (
+                  <div
+                    key={job.id}
+                    className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-[14px] font-semibold text-[#1a1a1a]">{job.description}</div>
+                        <div className="text-[12px] text-[#9e9690]">
+                          Contract: {contracts.find(c => c.id === job.contractId)?.title || 'Unknown'}
+                        </div>
+                        {job.link && (
+                          <div className="mt-2 text-[12px] text-[#6b6762]">
+                            Link: <a href={job.link} target="_blank" rel="noopener noreferrer" className="text-[#8C4F00] underline">{job.link}</a>
+                          </div>
+                        )}
+                        {job.attachment && (
+                          <div className="mt-2 text-[12px] text-[#6b6762]">
+                            Attachment: <a href={job.attachment.url} target="_blank" rel="noopener noreferrer" className="text-[#8C4F00] underline">{job.attachment.name}</a>
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right">
+                        <div className={`text-[10px] uppercase tracking-[0.1em] font-semibold ${
+                          job.status === 'approved' ? 'text-green-600' : job.status === 'rejected' ? 'text-red-600' : 'text-[#F5A623]'
+                        }`}>
+                          {job.status}
+                        </div>
+                        <div className="mt-2 text-[10px] text-[#6b6762]">
+                          {job.submittedAt.toLocaleDateString()}
+                        </div>
+                      </div>
                     </div>
                   </div>
+                ))
+              ) : (
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
+                  No submitted jobs found.
                 </div>
-              </button>
-            ))
-          ) : (
-            <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
-              No contracts in this view yet.
-            </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -508,6 +770,77 @@ export default function FreelancerContractsContent() {
               </div>
             </div>
 
+            <div className="mt-5 rounded-[12px] border border-[#EAE7E2] bg-[#FAF8F5] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8C4F00]">
+                    Submit work
+                  </div>
+                  <p className="mt-2 text-[12px] text-[#6b6762]">
+                    Use the contract page to upload your deliverable and share a link for client review.
+                  </p>
+                </div>
+              </div>
+             
+              <div className="mt-4 space-y-3">
+                <textarea
+                  value={workMessage}
+                  onChange={(e) => setWorkMessage(e.target.value)}
+                  placeholder="Describe the completed work"
+                  rows={3}
+                  className="w-full rounded-[10px] border border-[#EAE7E7] bg-white px-3 py-2 text-[12px] text-[#1a1a1a] outline-none focus:ring-2 focus:ring-orange-400/20"
+                />
+                <input
+                  value={workLink}
+                  onChange={(e) => setWorkLink(e.target.value)}
+                  placeholder="Paste a link to deliverable, preview, or repository"
+                  className="w-full rounded-[10px] border border-[#EAE7E7] bg-white px-3 py-2 text-[12px] text-[#1a1a1a] outline-none focus:ring-2 focus:ring-orange-400/20"
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-full"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    {selectedFile ? selectedFile.name : "Attach File"}
+                  </Button>
+                  {selectedFile ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      className="text-[11px] font-semibold text-[#6b6762]"
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                  <Button
+                    size="sm"
+                    className="rounded-full"
+                    onClick={() => void handleSubmitWork()}
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? "Submitting..." : "Submit Work"}
+                  </Button>
+                </div>
+                {submissionSuccess ? (
+                  <p className="text-[12px] text-[#2F855A]">{submissionSuccess}</p>
+                ) : null}
+                {submissionError ? (
+                  <p className="text-[12px] text-[#C53030]">{submissionError}</p>
+                ) : null}
+              </div>
+            </div>
+
             <div className="mt-5 flex flex-wrap gap-2">
               <Button
                 size="sm"
@@ -555,6 +888,8 @@ export default function FreelancerContractsContent() {
                       freelancerName,
                       clientAvatarUrl,
                       freelancerAvatarUrl,
+                      paymentTotalAmountSats: parseSats(selectedContract.budget),
+                      paymentStatus: "unfunded",
                       createdBy: "system",
                       canFreelancerMessage: true,
                       unread: {
