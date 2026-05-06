@@ -45,6 +45,8 @@ type Contract = {
   paymentInstallments?: number;
   paymentCurrentInstallment?: number;
   paymentReleasedInstallments?: number;
+  paymentTotalAmountSats?: number;
+  paymentPaidAmountSats?: number;
   workStatus?: "not_started" | "in_progress" | "submitted" | "changes_requested" | "approved" | "completed";
   submissionMessage?: string;
   submissionLink?: string;
@@ -95,6 +97,17 @@ const parseSats = (value: string) => {
   const cleaned = String(value ?? "").replace(/[^0-9.]/g, "");
   return cleaned ? Number(cleaned) : 0;
 };
+
+const calculateInstallmentAmount = (total: number, installments: number, installment: number) => {
+  const safeTotal = Math.max(0, Math.trunc(total));
+  const safeInstallments = Math.max(1, Math.trunc(installments));
+  const safeInstallment = Math.max(1, Math.min(safeInstallments, Math.trunc(installment)));
+  const base = Math.floor(safeTotal / safeInstallments);
+  const remainder = safeTotal % safeInstallments;
+  return base + (safeInstallment <= remainder ? 1 : 0);
+};
+
+const clampInstallments = (installments: number) => Math.max(1, Math.min(10, Math.trunc(installments)));
 
 export default function ClientContractsContent() {
   const router = useRouter();
@@ -389,7 +402,49 @@ export default function ClientContractsContent() {
       return;
     }
 
+    // Get freelancer's Lightning address
+    const lightningAddress = freelancerData?.settings?.payment?.lightningAddress;
+    if (!lightningAddress) {
+      setApprovalErrorMessage("Freelancer has not set up a Lightning address. Payment cannot be processed.");
+      return;
+    }
+
     try {
+      // Calculate milestone amount
+      const totalAmount = contract.paymentTotalAmountSats || parseSats(contract.budget) || 0;
+      const milestoneAmount = calculateInstallmentAmount(totalAmount, totalInstallments, nextMilestoneIndex);
+
+      if (milestoneAmount <= 0) {
+        setApprovalErrorMessage("Unable to calculate milestone amount.");
+        return;
+      }
+
+      // Send payment to freelancer
+      const paymentResponse = await fetch("/api/send-payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          lightningAddress,
+          amount: milestoneAmount,
+          memo: `Milestone ${nextMilestoneIndex} payment for contract: ${contract.title}`,
+        }),
+      });
+
+      const rawPaymentResponse = await paymentResponse.text();
+      let paymentData: any = null;
+      try {
+        paymentData = rawPaymentResponse ? JSON.parse(rawPaymentResponse) : null;
+      } catch (parseError) {
+        throw new Error(`Failed to parse payment response: ${rawPaymentResponse}`);
+      }
+
+      if (!paymentResponse.ok) {
+        throw new Error(paymentData?.error ?? `Failed to send payment to freelancer: ${rawPaymentResponse}`);
+      }
+
+      // Update submitted job status
       await updateDoc(doc(firebaseDb, "submitted_jobs", pendingApprovalJobId), {
         status: "approved",
         updatedAt: serverTimestamp(),
@@ -413,7 +468,7 @@ export default function ClientContractsContent() {
             workStatus: contractUpdate.workStatus,
             paymentStatus: contractUpdate.paymentStatus,
             updatedAt: serverTimestamp(),
-            "lastMessage.text": `Milestone ${nextMilestoneIndex} approved and payment released.`,
+            "lastMessage.text": `Milestone ${nextMilestoneIndex} approved and payment of ${milestoneAmount} sats sent to freelancer.`,
             "lastMessage.senderId": "system",
             "lastMessage.createdAt": serverTimestamp(),
             [`unread.${contract.freelancerId}`]: increment(1),
@@ -428,7 +483,11 @@ export default function ClientContractsContent() {
       setApprovalErrorMessage("");
     } catch (error) {
       console.error("Error approving submission:", error);
-      setApprovalErrorMessage("Failed to approve the submission. Please try again.");
+      setApprovalErrorMessage(
+        error instanceof Error
+          ? error.message
+          : "Failed to approve the submission and send payment. Please try again."
+      );
     }
   };
 
