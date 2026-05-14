@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/atoms/Button";
 import DashboardMetricCard from "@/components/molecules/DashboardMetricCard";
 import ClientContractCard from "@/components/molecules/ClientContractCard";
+import { Briefcase, ClipboardCheck, FileText } from "lucide-react";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
@@ -46,7 +47,12 @@ type Contract = {
   paymentCurrentInstallment?: number;
   paymentReleasedInstallments?: number;
   paymentTotalAmountSats?: number;
+  paymentTotalChargedSats?: number;
   paymentPaidAmountSats?: number;
+  platformFeeSats?: number;
+  platformFeePercent?: number;
+  escrowFundedTotalSats?: number;
+  escrowReleasedSats?: number;
   workStatus?: "not_started" | "in_progress" | "submitted" | "changes_requested" | "approved" | "completed";
   submissionMessage?: string;
   submissionLink?: string;
@@ -58,10 +64,17 @@ type Contract = {
   revisionMessage?: string;
   scopeItems?: string[];
   milestones?: Array<{
+    index?: number;
     name: string;
+    title?: string;
     amount: string;
+    freelancerAmountSats?: number;
+    platformFeeSats?: number;
+    totalClientPaysSats?: number;
+    fundedSats?: number;
+    releasedSats?: number;
     deadline: string;
-    status: "Pending" | "In Progress" | "Approved";
+    status: "Pending" | "In Progress" | "Approved" | "pending" | "funded" | "submitted" | "approved" | "released";
   }>;
   createdAt?: any;
   updatedAt?: any;
@@ -78,6 +91,7 @@ type SubmittedJob = {
   };
   submittedAt: Date;
   status: "pending" | "approved" | "rejected";
+  revisionMessage?: string;
 };
 
 const formatDate = (value: any) => {
@@ -112,7 +126,7 @@ const clampInstallments = (installments: number) => Math.max(1, Math.min(10, Mat
 export default function ClientContractsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [view, setView] = useState<"active" | "ongoing">("active");
+  const [view, setView] = useState<"active" | "ongoing" | "finished">("active");
   const [selectedId, setSelectedId] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [contracts, setContracts] = useState<Contract[]>([]);
@@ -127,6 +141,11 @@ export default function ClientContractsContent() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [pendingApprovalJobId, setPendingApprovalJobId] = useState<string | null>(null);
   const [approvalErrorMessage, setApprovalErrorMessage] = useState<string>("");
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
+  const [pendingChangeJobId, setPendingChangeJobId] = useState<string | null>(null);
+  const [changeRequestNote, setChangeRequestNote] = useState("");
+  const [changeRequestError, setChangeRequestError] = useState("");
+  const [isRequestingChanges, setIsRequestingChanges] = useState(false);
   const [freelancerData, setFreelancerData] = useState<any>(null);
   const [loadingFreelancer, setLoadingFreelancer] = useState(false);
   const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
@@ -289,6 +308,14 @@ export default function ClientContractsContent() {
               paymentStatus: data.paymentStatus ?? "unfunded",
               paymentInstallments: Number(data.paymentInstallments ?? 1),
               paymentCurrentInstallment: Number(data.paymentCurrentInstallment ?? 1),
+              paymentReleasedInstallments: Number(data.paymentReleasedInstallments ?? 0),
+              paymentTotalAmountSats: Number(data.paymentTotalAmountSats ?? parseSats(data.budget) ?? 0),
+              paymentTotalChargedSats: Number(data.paymentTotalChargedSats ?? 0),
+              paymentPaidAmountSats: Number(data.paymentPaidAmountSats ?? 0),
+              platformFeeSats: Number(data.platformFeeSats ?? 0),
+              platformFeePercent: Number(data.platformFeePercent ?? 5),
+              escrowFundedTotalSats: Number(data.escrowFundedTotalSats ?? 0),
+              escrowReleasedSats: Number(data.escrowReleasedSats ?? 0),
               workStatus: data.workStatus ?? "not_started",
               submissionMessage: data.submissionMessage ?? "",
               submissionLink: data.submissionLink ?? "",
@@ -327,7 +354,10 @@ export default function ClientContractsContent() {
         }
       );
 
-      const submittedQuery = query(collection(firebaseDb, "submitted_jobs"));
+      const submittedQuery = query(
+        collection(firebaseDb, "submitted_jobs"),
+        where("clientId", "==", user.uid)
+      );
       unsubscribeSubmitted = onSnapshot(
         submittedQuery,
         (snapshot) => {
@@ -341,12 +371,11 @@ export default function ClientContractsContent() {
               attachment: data.attachment ?? null,
               submittedAt: data.submittedAt?.toDate() ?? new Date(),
               status: data.status ?? "pending",
+              revisionMessage: data.revisionMessage ?? "",
             };
           });
-          const clientContractIds = contracts.map(c => c.id);
-          const filtered = items.filter(job => clientContractIds.includes(job.contractId));
-          filtered.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
-          setSubmittedJobs(filtered);
+          items.sort((a, b) => b.submittedAt.getTime() - a.submittedAt.getTime());
+          setSubmittedJobs(items);
         },
         () => {}
       );
@@ -358,18 +387,54 @@ export default function ClientContractsContent() {
     };
   }, [selectedId]);
 
+  const isFinishedContract = (contract: Contract) =>
+    contract.status === "Completed" ||
+    contract.paymentStatus === "released" ||
+    contract.workStatus === "approved" ||
+    contract.workStatus === "completed";
+
+  const isEscrowContract = (contract: Contract) =>
+    !isFinishedContract(contract) &&
+    (contract.paymentStatus === "funded" ||
+      (contract.escrowFundedTotalSats ?? 0) > 0 ||
+      contract.workStatus === "in_progress" ||
+      contract.workStatus === "submitted" ||
+      contract.workStatus === "changes_requested");
+
   const activeContracts = useMemo(
-    () => contracts.filter((c) => c.status === "Active"),
+    () => contracts.filter((contract) => !isFinishedContract(contract) && !isEscrowContract(contract)),
     [contracts]
   );
   const ongoingContracts = useMemo(
-    () => contracts.filter((c) => c.status === "Review" || c.status === "Completed"),
+    () => contracts.filter((contract) => isEscrowContract(contract)),
+    [contracts]
+  );
+  const finishedContracts = useMemo(
+    () => contracts.filter((contract) => isFinishedContract(contract)),
     [contracts]
   );
 
-  const visibleContracts = view === "active" ? activeContracts : ongoingContracts;
+  const visibleContracts =
+    view === "active" ? activeContracts : view === "ongoing" ? ongoingContracts : finishedContracts;
   const selectedContract =
     contracts.find((c) => c.id === selectedId) ?? visibleContracts[0];
+  const selectedSubmission = selectedSubmissionId
+    ? submittedJobs.find((job) => job.id === selectedSubmissionId) ?? null
+    : null;
+  const selectedSubmissionContract = selectedSubmission
+    ? contracts.find((contract) => contract.id === selectedSubmission.contractId) ?? null
+    : null;
+  const pendingChangeJob = pendingChangeJobId
+    ? submittedJobs.find((job) => job.id === pendingChangeJobId) ?? null
+    : null;
+  const pendingChangeContract = pendingChangeJob
+    ? contracts.find((contract) => contract.id === pendingChangeJob.contractId) ?? null
+    : null;
+  const contractStatusFilters: Array<{ id: typeof view; label: string; count: number }> = [
+    { id: "active", label: "Active", count: activeContracts.length },
+    { id: "ongoing", label: "Ongoing", count: ongoingContracts.length },
+    { id: "finished", label: "Finished jobs", count: finishedContracts.length },
+  ];
 
   const handleApproveSubmission = async (jobId: string) => {
     setApprovalErrorMessage("");
@@ -393,11 +458,23 @@ export default function ClientContractsContent() {
     const totalInstallments = contract.paymentInstallments ?? 1;
     const releasedInstallments = contract.paymentReleasedInstallments ?? 0;
     const nextMilestoneIndex = releasedInstallments + 1;
-    const canRelease = fundedInstallments >= nextMilestoneIndex && (paymentStatus === "funded" || paymentStatus === "released");
+    const milestone = contract.milestones?.find((item: any, index) => Number(item.index ?? index + 1) === nextMilestoneIndex);
+    const totalAmount = contract.paymentTotalAmountSats || parseSats(contract.budget) || 0;
+    const milestoneAmount = Number((milestone as any)?.freelancerAmountSats ?? calculateInstallmentAmount(totalAmount, totalInstallments, nextMilestoneIndex));
+    const milestoneFundedSats = milestone ? Number((milestone as any).fundedSats ?? 0) : milestoneAmount;
+    const milestoneReleasedSats = milestone ? Number((milestone as any).releasedSats ?? 0) : 0;
+    const remainingMilestoneEscrow = Math.max(0, milestoneFundedSats - milestoneReleasedSats);
+    const canRelease =
+      fundedInstallments >= nextMilestoneIndex &&
+      (paymentStatus === "funded" || paymentStatus === "released") &&
+      remainingMilestoneEscrow >= milestoneAmount;
 
     if (!canRelease) {
+      const shortfall = Math.max(0, milestoneAmount - remainingMilestoneEscrow);
       setApprovalErrorMessage(
-        "This milestone is not funded yet. You need to fund escrow for the next milestone before approving work."
+        shortfall > 0
+          ? `You need to fund ${shortfall.toLocaleString()} sats more in escrow before approving this milestone.`
+          : "This milestone is not funded yet. Fund escrow before approving work."
       );
       return;
     }
@@ -410,10 +487,6 @@ export default function ClientContractsContent() {
     }
 
     try {
-      // Calculate milestone amount
-      const totalAmount = contract.paymentTotalAmountSats || parseSats(contract.budget) || 0;
-      const milestoneAmount = calculateInstallmentAmount(totalAmount, totalInstallments, nextMilestoneIndex);
-
       if (milestoneAmount <= 0) {
         setApprovalErrorMessage("Unable to calculate milestone amount.");
         return;
@@ -452,14 +525,37 @@ export default function ClientContractsContent() {
 
       const nextReleasedCount = releasedInstallments + 1;
       const isFinalRelease = nextReleasedCount >= totalInstallments;
+      const updatedMilestones = (contract.milestones ?? []).map((item, index) => {
+        const itemIndex = Number(item.index ?? index + 1);
+        if (itemIndex !== nextMilestoneIndex) return item;
+        return {
+          ...item,
+          releasedSats: Number(item.releasedSats ?? 0) + milestoneAmount,
+          status: "released",
+          releasedAt: new Date().toISOString(),
+        };
+      });
       const contractUpdate = {
         workStatus: isFinalRelease ? "approved" : "in_progress",
         paymentReleasedInstallments: nextReleasedCount,
+        escrowReleasedSats: (contract.escrowReleasedSats ?? 0) + milestoneAmount,
+        milestones: updatedMilestones,
         paymentStatus: isFinalRelease ? "released" : "funded",
         updatedAt: serverTimestamp(),
       };
 
       await setDoc(doc(firebaseDb, "contracts", job.contractId), contractUpdate, { merge: true });
+      await setDoc(
+        doc(firebaseDb, "escrows", job.contractId),
+        {
+          totalReleasedToFreelancerSats: contractUpdate.escrowReleasedSats,
+          releasedMilestoneCount: nextReleasedCount,
+          milestones: updatedMilestones,
+          status: isFinalRelease ? "released" : "funded",
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
 
       try {
         const conversationDoc = await getConversationForContract(contract);
@@ -467,8 +563,10 @@ export default function ClientContractsContent() {
           await updateDoc(conversationDoc.ref, {
             workStatus: contractUpdate.workStatus,
             paymentStatus: contractUpdate.paymentStatus,
+            escrowReleasedSats: contractUpdate.escrowReleasedSats,
+            milestones: updatedMilestones,
             updatedAt: serverTimestamp(),
-            "lastMessage.text": `Milestone ${nextMilestoneIndex} approved and payment of ${milestoneAmount} sats sent to freelancer.`,
+            "lastMessage.text": `Milestone ${nextMilestoneIndex}${milestone?.title || milestone?.name ? `: ${milestone?.title || milestone?.name}` : ""} approved and payment of ${milestoneAmount} sats sent to freelancer.`,
             "lastMessage.senderId": "system",
             "lastMessage.createdAt": serverTimestamp(),
             [`unread.${contract.freelancerId}`]: increment(1),
@@ -491,22 +589,95 @@ export default function ClientContractsContent() {
     }
   };
 
-  const handleRejectSubmission = async (jobId: string) => {
+  const openChangeRequest = (jobId: string) => {
+    const job = submittedJobs.find((item) => item.id === jobId);
+    const contract = job ? contracts.find((item) => item.id === job.contractId) : null;
+    setPendingChangeJobId(jobId);
+    setChangeRequestNote(job?.revisionMessage || contract?.revisionMessage || "");
+    setChangeRequestError("");
+  };
+
+  const handleRejectSubmission = async () => {
+    if (!pendingChangeJobId) return;
+    const note = changeRequestNote.trim();
+    if (!note) {
+      setChangeRequestError("Write a short note so the freelancer knows what to adjust.");
+      return;
+    }
+
+    const job = submittedJobs.find((item) => item.id === pendingChangeJobId);
+    const contract = job ? contracts.find((item) => item.id === job.contractId) : null;
+    if (!job || !contract) {
+      setChangeRequestError("Unable to find this submitted work.");
+      return;
+    }
+
+    setIsRequestingChanges(true);
+    setChangeRequestError("");
+
     try {
-      await updateDoc(doc(firebaseDb, "submitted_jobs", jobId), {
-        status: "rejected",
-        updatedAt: serverTimestamp(),
+      const nextMilestoneIndex = (contract.paymentReleasedInstallments ?? 0) + 1;
+      const updatedMilestones = (contract.milestones ?? []).map((item: any, index) => {
+        const itemIndex = Number(item.index ?? index + 1);
+        if (itemIndex !== nextMilestoneIndex) return item;
+        return {
+          ...item,
+          status: "funded",
+          revisionMessage: note,
+          changesRequestedAt: new Date().toISOString(),
+        };
       });
-      const job = submittedJobs.find(j => j.id === jobId);
-      if (job) {
-        await setDoc(doc(firebaseDb, "contracts", job.contractId), {
+      const messageText = `Work returned for adjustments on "${contract.title}". Note: ${note}`;
+      const conversationId =
+        contract.jobId && contract.freelancerId
+          ? createConversationId(contract.jobId, contract.freelancerId)
+          : contract.id;
+
+      await Promise.all([
+        updateDoc(doc(firebaseDb, "submitted_jobs", pendingChangeJobId), {
+        status: "rejected",
+          revisionMessage: note,
+          reviewedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        }),
+        setDoc(doc(firebaseDb, "contracts", job.contractId), {
           workStatus: "changes_requested",
-          revisionMessage: reviewNote || "Please make the requested changes.",
+          revisionMessage: note,
+          milestones: updatedMilestones,
+          unreadByFreelancer: true,
           updatedAt: serverTimestamp(),
-        }, { merge: true });
-      }
+        }, { merge: true }),
+        setDoc(
+          doc(firebaseDb, "conversations", conversationId),
+          {
+            workStatus: "changes_requested",
+            revisionMessage: note,
+            milestones: updatedMilestones,
+            "lastMessage.text": messageText,
+            "lastMessage.senderId": "system",
+            "lastMessage.createdAt": serverTimestamp(),
+            [`unread.${contract.freelancerId}`]: increment(1),
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        ),
+        addDoc(collection(firebaseDb, "conversations", conversationId, "messages"), {
+          senderId: "system",
+          senderRole: "system",
+          text: messageText,
+          messageType: "changes_requested",
+          createdAt: serverTimestamp(),
+        }),
+      ]);
+
+      setPendingChangeJobId(null);
+      setChangeRequestNote("");
+      setSelectedSubmissionId(pendingChangeJobId);
     } catch (error) {
       console.error("Error rejecting submission:", error);
+      setChangeRequestError("Unable to send the adjustment request. Please try again.");
+    } finally {
+      setIsRequestingChanges(false);
     }
   };
 
@@ -571,89 +742,54 @@ export default function ClientContractsContent() {
 
   return (
     <section className="w-full">
-      <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-6 shadow-[0_8px_22px_rgba(0,0,0,0.05)]">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8C4F00]">
-              Contracts
-            </div>
-            <h1 className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[#1a1a1a]">
-              Your engagements
-            </h1>
-            <p className="mt-2 text-[12px] leading-[1.7] text-[#6b6762]">
-              Track milestones, deliverables, and active client work.
-            </p>
-          </div>
-          <Button size="sm" variant="outline" className="rounded-full">
-            View All Contracts
-          </Button>
-        </div>
+      <div className="flex items-center gap-6 px-2">
+        {[
+          { id: "contracts", label: "Contracts" },
+          { id: "submitted", label: "Submitted jobs" },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => setActiveTab(tab.id as "contracts" | "submitted")}
+            className={`relative py-3 text-[13px] font-medium transition ${
+              activeTab === tab.id ? "text-[#1a1a1a]" : "text-[#8f8780] hover:text-[#1a1a1a]"
+            }`}
+          >
+            {tab.label}
+            {activeTab === tab.id ? (
+              <span className="absolute bottom-[-1px] left-0 h-[2px] w-full rounded-full bg-[#F7931A]" />
+            ) : null}
+          </button>
+        ))}
       </div>
 
-      <div className="mt-6 rounded-[12px] border border-[#EAE7E2] bg-[#F9F6F2] p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
-              {activeTab === 'contracts' ? 'Contracts' : 'Submitted Jobs'}
-            </div>
-            <div className="text-[12px] text-[#6b6762]">
-              {activeTab === 'contracts' ? 'Switch between active and ongoing work.' : 'Review submitted work from freelancers.'}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab('contracts')}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                activeTab === 'contracts'
-                  ? "bg-white text-[#1a1a1a] shadow-sm"
-                  : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
-              }`}
-            >
-              Contracts
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('submitted')}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                activeTab === 'submitted'
-                  ? "bg-white text-[#1a1a1a] shadow-sm"
-                  : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
-              }`}
-            >
-              Submitted Jobs
-            </button>
-          </div>
-        </div>
+      <div className="mt-2 rounded-[14px] border border-[#EAE7E2] bg-white p-3 shadow-[0_8px_22px_rgba(0,0,0,0.04)]">
         {activeTab === 'contracts' && (
           <>
-            <div className="mt-4 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setView("active")}
-                className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  view === "active"
-                    ? "bg-white text-[#1a1a1a] shadow-sm"
-                    : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
-                }`}
-              >
-                Active
-              </button>
-              <button
-                type="button"
-                onClick={() => setView("ongoing")}
-                className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${
-                  view === "ongoing"
-                    ? "bg-white text-[#1a1a1a] shadow-sm"
-                    : "bg-transparent text-[#6b6762] border border-[#EAE7E2]"
-                }`}
-              >
-                Ongoing
-              </button>
+            <div className="grid gap-2">
+              <div className="grid gap-2 sm:grid-cols-3">
+                {contractStatusFilters.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setView(filter.id)}
+                    className={`flex h-10 items-center justify-between rounded-[10px] border px-4 text-left text-[12px] font-semibold transition ${
+                      view === filter.id
+                        ? "border-[#F7931A] bg-[#FFF4E6] text-[#8C4F00]"
+                        : "border-[#EFECE7] bg-[#FAF8F5] text-[#4E4B48] hover:border-[#F2D8AA]"
+                    }`}
+                  >
+                    <span>{filter.label}</span>
+                    <span className="rounded-full bg-white px-2 py-0.5 text-[10px] text-[#8f8780]">
+                      {filter.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="mt-4 grid grid-cols-1 gap-4">
               {loading ? (
-                <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
+                <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-6 text-center text-[12px] text-[#6b6762]">
                   Loading contracts...
                 </div>
               ) : errorMessage ? (
@@ -661,34 +797,73 @@ export default function ClientContractsContent() {
                   {errorMessage}
                 </div>
               ) : visibleContracts.length ? (
-                visibleContracts.map((contract) => (
-                  <button
-                    key={contract.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedId(contract.id);
-                      setIsModalOpen(true);
-                    }}
-                    className="text-left rounded-[12px] border border-[#EAE7E2] bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)]"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-[14px] font-semibold text-[#1a1a1a]">{contract.title}</div>
-                        <div className="text-[12px] text-[#9e9690]">Freelancer: {contract.freelancer}</div>
-                        <div className="mt-2 text-[11px] text-[#6b6762]">{contract.nextMilestone}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-[12px] font-semibold text-[#8C4F00]">{contract.budget}</div>
-                        <div className="mt-2 text-[10px] uppercase tracking-[0.1em] text-[#6b6762]">
-                          {contract.status}
+                <div className="overflow-hidden rounded-[12px] border border-[#EAE7E2] bg-white">
+                  <div className="hidden grid-cols-[1.4fr_1fr_0.9fr_1.2fr_auto] gap-3 border-b border-[#EFECE7] bg-[#FAF8F5] px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9e9690] md:grid">
+                    <span>Project</span>
+                    <span>Freelancer</span>
+                    <span>Escrow</span>
+                    <span>Next milestone</span>
+                    <span></span>
+                  </div>
+                  {visibleContracts.map((contract) => {
+                    const escrowLabel =
+                      isFinishedContract(contract)
+                        ? "Finished"
+                        : isEscrowContract(contract)
+                          ? "Funded"
+                          : contract.paymentStatus === "invoice_created"
+                            ? "Invoice sent"
+                            : "Not funded";
+                    return (
+                      <button
+                        key={contract.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(contract.id);
+                          setIsModalOpen(true);
+                        }}
+                        className="grid w-full gap-3 border-b border-[#F1EEE9] px-4 py-4 text-left transition last:border-b-0 hover:bg-[#FFF9F0] md:grid-cols-[1.4fr_1fr_0.9fr_1.2fr_auto] md:items-center"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate text-[14px] font-semibold text-[#1a1a1a]">{contract.title}</div>
+                          <div className="mt-1 text-[11px] text-[#9e9690] md:hidden">Freelancer: {contract.freelancer}</div>
                         </div>
-                      </div>
-                    </div>
-                  </button>
-                ))
+                        <div className="hidden truncate text-[12px] text-[#6b6762] md:block">{contract.freelancer}</div>
+                        <div>
+                          <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+                            escrowLabel === "Funded"
+                              ? "bg-[#E6F4EA] text-[#2E7D32]"
+                              : escrowLabel === "Finished"
+                                ? "bg-[#F5EFE8] text-[#8C4F00]"
+                                : "bg-[#FFF4E6] text-[#8C4F00]"
+                          }`}>
+                            {escrowLabel}
+                          </span>
+                        </div>
+                        <div className="min-w-0 break-words text-[12px] text-[#6b6762] [overflow-wrap:anywhere]">
+                          <span className="md:hidden font-semibold text-[#9e9690]">Next: </span>
+                          {contract.nextMilestone}
+                        </div>
+                        <div className="flex items-center justify-between gap-3 md:justify-end">
+                          <span className="text-[12px] font-semibold text-[#8C4F00]">{contract.budget}</span>
+                          <span className="text-[11px] font-semibold text-[#1a1a1a]">Open</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               ) : (
-                <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
-                  No contracts in this view yet.
+                <div className="flex min-h-[172px] flex-col items-center justify-center rounded-[12px] bg-white px-5 py-10 text-center">
+                  <FileText className="h-11 w-11 text-[#F7931A]" />
+                  <div className="mt-3 text-[15px] font-semibold text-[#1a1a1a]">No {view === "finished" ? "finished jobs" : `${view} contracts`} yet</div>
+                  <Button
+                    size="sm"
+                    className="mt-4 rounded-full bg-[#F7931A] text-[#1a1a1a] hover:bg-[#E9850F]"
+                    onClick={() => router.push("/client/dashboard/job-posts")}
+                  >
+                    <Briefcase className="mr-2 h-4 w-4" />
+                    Post a Job
+                  </Button>
                 </div>
               )}
             </div>
@@ -700,57 +875,79 @@ export default function ClientContractsContent() {
               submittedJobs.map((job) => (
                 <div
                   key={job.id}
-                  className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 shadow-[0_6px_16px_rgba(0,0,0,0.04)]"
+                  className="w-full min-w-0 rounded-[12px] border border-[#EAE7E2] bg-white p-3 shadow-[0_6px_16px_rgba(0,0,0,0.04)] transition hover:border-[#F2D8AA] sm:p-4"
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-[14px] font-semibold text-[#1a1a1a] break-words">{job.description}</div>
-                      <div className="text-[12px] text-[#9e9690] break-words">
+                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="min-w-0 flex-1">
+                      <div className="break-words text-[13px] font-semibold leading-5 text-[#1a1a1a] [overflow-wrap:anywhere] sm:text-[14px]">{job.description}</div>
+                      <div className="mt-1 break-words text-[12px] text-[#9e9690] [overflow-wrap:anywhere]">
                         Contract: {contracts.find(c => c.id === job.contractId)?.title || 'Unknown'}
                       </div>
                       {job.link && (
-                        <div className="mt-2 text-[12px] text-[#6b6762] break-all">
-                          Link: <a href={job.link} target="_blank" rel="noopener noreferrer" className="text-[#8C4F00] underline break-all">{job.link}</a>
+                        <div className="mt-2 max-w-full text-[12px] leading-5 text-[#6b6762]">
+                          <span className="font-semibold text-[#9e9690]">Link: </span>
+                          <a href={job.link} target="_blank" rel="noopener noreferrer" className="text-[#8C4F00] underline break-all [overflow-wrap:anywhere]">{job.link}</a>
                         </div>
                       )}
                       {job.attachment && (
-                        <div className="mt-2 text-[12px] text-[#6b6762] break-all">
-                          Attachment: <a href={job.attachment.url} target="_blank" rel="noopener noreferrer" className="text-[#8C4F00] underline break-all">{job.attachment.name}</a>
+                        <div className="mt-2 max-w-full text-[12px] leading-5 text-[#6b6762]">
+                          <span className="font-semibold text-[#9e9690]">Attachment: </span>
+                          <a href={job.attachment.url} target="_blank" rel="noopener noreferrer" className="text-[#8C4F00] underline break-all [overflow-wrap:anywhere]">{job.attachment.name}</a>
                         </div>
                       )}
                     </div>
-                    <div className="text-right flex flex-col gap-2">
-                      <div className={`text-[10px] uppercase tracking-[0.1em] font-semibold ${
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[124px] sm:items-end sm:text-right">
+                      <div className={`inline-flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] sm:justify-end ${
                         job.status === 'approved' ? 'text-green-600' : job.status === 'rejected' ? 'text-red-600' : 'text-[#F5A623]'
                       }`}>
+                        {job.status === 'rejected' ? (
+                          <span className="inline-flex h-2 w-2 rounded-full bg-[#F7931A]" />
+                        ) : null}
                         {job.status}
                       </div>
                       <div className="text-[10px] text-[#6b6762]">
                         {job.submittedAt.toLocaleDateString()}
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSubmissionId(job.id)}
+                        className="w-full rounded-full border border-[#EAE7E2] px-3 py-2 text-[10px] font-semibold text-[#6b6762] transition hover:bg-[#F7F4F0] sm:w-auto sm:py-1"
+                      >
+                        View Details
+                      </button>
                       {job.status === 'pending' && (
-                        <div className="flex gap-2">
+                        <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
                           <button
                             onClick={() => handleApproveSubmission(job.id)}
-                            className="text-[10px] bg-green-600 text-white px-2 py-1 rounded"
+                            className="rounded-full bg-green-600 px-3 py-2 text-[10px] font-semibold text-white sm:py-1"
                           >
                             Approve
                           </button>
                           <button
-                            onClick={() => handleRejectSubmission(job.id)}
-                            className="text-[10px] bg-red-600 text-white px-2 py-1 rounded"
+                            onClick={() => openChangeRequest(job.id)}
+                            className="rounded-full bg-red-600 px-3 py-2 text-[10px] font-semibold text-white sm:py-1"
                           >
-                            Reject
+                            Changes
                           </button>
                         </div>
+                      )}
+                      {job.status === 'rejected' && (
+                        <button
+                          type="button"
+                          onClick={() => openChangeRequest(job.id)}
+                          className="w-full rounded-full bg-[#FFF4E6] px-3 py-2 text-[10px] font-semibold text-[#8C4F00] sm:w-auto sm:py-1"
+                        >
+                          Edit Note
+                        </button>
                       )}
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-4 text-[12px] text-[#6b6762]">
-                No submitted jobs found.
+              <div className="flex min-h-[172px] flex-col items-center justify-center rounded-[12px] bg-white px-5 py-10 text-center">
+                <ClipboardCheck className="h-10 w-10 text-[#F7931A]" />
+                <div className="mt-3 text-[15px] font-semibold text-[#1a1a1a]">No submitted jobs yet</div>
               </div>
             )}
           </div>
@@ -758,12 +955,12 @@ export default function ClientContractsContent() {
       </div>
 
       {isModalOpen && selectedContract && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center px-4">
+        <div className="fixed inset-0 z-[80] flex items-end justify-center px-2 py-2 sm:items-center sm:px-4 sm:py-4">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => setIsModalOpen(false)}
           />
-          <div className="relative z-[81] w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-[16px] border border-[#EAE7E2] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
+          <div className="relative z-[81] max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-[14px] border border-[#EAE7E2] bg-[#FCF9F7] p-4 shadow-[0_20px_50px_rgba(0,0,0,0.2)] sm:rounded-[16px] sm:p-5">
             <button
               type="button"
               onClick={() => setIsModalOpen(false)}
@@ -776,12 +973,13 @@ export default function ClientContractsContent() {
             </button>
 
             {/* ── Header ── */}
+            <div className="rounded-[14px] border border-[#EAE7E2] bg-white p-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8C4F00]">
                   Contract Details
                 </div>
-                <div className="mt-2 text-[18px] font-semibold text-[#1a1a1a]">
+                <div className="mt-2 break-words text-[16px] font-semibold leading-6 text-[#1a1a1a] [overflow-wrap:anywhere] sm:text-[18px]">
                   {selectedContract.title}
                 </div>
                 <div className="text-[12px] text-[#9e9690]">
@@ -792,6 +990,23 @@ export default function ClientContractsContent() {
 
             <div className="mt-4 text-[12px] leading-[1.7] text-[#6b6762]">
               {selectedContract.description}
+            </div>
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="min-w-0 rounded-[12px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-3 sm:px-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">Budget</div>
+                <div className="mt-1 text-[14px] font-semibold text-[#1a1a1a]">{selectedContract.budget}</div>
+              </div>
+              <div className="min-w-0 rounded-[12px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-3 sm:px-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">Work Status</div>
+                <div className="mt-1 text-[14px] font-semibold capitalize text-[#1a1a1a]">
+                  {selectedContract.workStatus?.replace(/_/g, " ") ?? "Not started"}
+                </div>
+              </div>
+              <div className="min-w-0 rounded-[12px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-3 sm:px-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">Next</div>
+                <div className="mt-1 truncate text-[14px] font-semibold text-[#1a1a1a]">{selectedContract.nextMilestone}</div>
+              </div>
+            </div>
             </div>
 
             {/* ── Contract Overview grid (matches freelancer modal) ── */}
@@ -862,11 +1077,13 @@ export default function ClientContractsContent() {
                         className="flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2 text-[11px]"
                       >
                         <div>
-                          <div className="font-semibold text-[#1a1a1a]">{milestone.name}</div>
+                          <div className="font-semibold text-[#1a1a1a]">{milestone.title || milestone.name}</div>
                           <div className="text-[#9e9690]">{milestone.deadline}</div>
                         </div>
                         <div className="text-right">
-                          <div className="font-semibold text-[#8C4F00]">{milestone.amount}</div>
+                          <div className="font-semibold text-[#8C4F00]">
+                            {milestone.freelancerAmountSats ? `${milestone.freelancerAmountSats.toLocaleString()} sats` : milestone.amount}
+                          </div>
                           <div className="text-[10px] uppercase tracking-[0.12em] text-[#6b6762]">
                             {milestone.status}
                           </div>
@@ -887,31 +1104,49 @@ export default function ClientContractsContent() {
               <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#8C4F00]">
                 Payment Details
               </div>
+              {(() => {
+                const jobAmount = selectedContract.paymentTotalAmountSats || parseSats(selectedContract.budget) || 0;
+                const platformFee = selectedContract.platformFeeSats || Math.ceil(jobAmount * ((selectedContract.platformFeePercent ?? 5) / 100));
+                const clientTotal = selectedContract.paymentTotalChargedSats || jobAmount + platformFee;
+                const released = selectedContract.escrowReleasedSats ?? 0;
+                const funded = selectedContract.escrowFundedTotalSats ?? 0;
+                const remainingFunded = Math.max(0, funded - platformFee - released);
+                return (
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 text-[11px] text-[#6b6762]">
                 <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
                   <div className="uppercase tracking-[0.12em] text-[#9e9690]">Total Value</div>
-                  <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.budget}</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{jobAmount.toLocaleString()} sats</div>
                 </div>
                 <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
-                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Paid</div>
-                  <div className="mt-1 font-semibold text-[#1a1a1a]">0 sats</div>
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Client Pays With Fee</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{clientTotal.toLocaleString()} sats</div>
                 </div>
                 <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
-                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Escrow</div>
-                  <div className="mt-1 font-semibold text-[#1a1a1a]">0 sats</div>
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Funded Escrow</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{funded.toLocaleString()} sats</div>
                 </div>
                 <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
-                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Pending</div>
-                  <div className="mt-1 font-semibold text-[#1a1a1a]">0 sats</div>
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Available To Release</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{remainingFunded.toLocaleString()} sats</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Platform Fee</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{platformFee.toLocaleString()} sats</div>
+                </div>
+                <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div className="uppercase tracking-[0.12em] text-[#9e9690]">Released</div>
+                  <div className="mt-1 font-semibold text-[#1a1a1a]">{released.toLocaleString()} sats</div>
                 </div>
               </div>
+                );
+              })()}
               <p className="mt-3 text-[11px] text-[#9e9690]">
-                Payments are placeholders until escrow is implemented.
+                The 5% platform fee is included in the client invoice. Freelancer payouts are released per approved milestone.
               </p>
             </div>
 
             {/* ── Budget / Progress / Dates grid ── */}
-            <div className="mt-5 grid grid-cols-2 gap-3 text-[11px] text-[#6b6762]">
+            <div className="mt-5 grid grid-cols-1 gap-3 text-[11px] text-[#6b6762] sm:grid-cols-2">
               <div className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
                 <div className="uppercase tracking-[0.12em] text-[#9e9690]">Budget</div>
                 <div className="mt-1 font-semibold text-[#1a1a1a]">{selectedContract.budget}</div>
@@ -1014,10 +1249,157 @@ export default function ClientContractsContent() {
         </div>
       )}
 
+      {selectedSubmission && (
+        <div className="fixed inset-0 z-[95] flex items-end justify-center px-2 py-2 sm:items-center sm:px-4 sm:py-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setSelectedSubmissionId(null)}
+          />
+          <div className="relative z-[96] max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[14px] border border-[#EAE7E2] bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.2)] sm:rounded-[16px] sm:p-5">
+            <button
+              type="button"
+              onClick={() => setSelectedSubmissionId(null)}
+              aria-label="Close"
+              className="absolute right-4 top-4 rounded-full border border-[#EAE7E2] bg-white p-2 text-[#6b6762] hover:bg-[#F7F4F0]"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+            </button>
+
+            <div className="pr-10">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8C4F00]">
+                Submitted Work
+              </div>
+              <div className="mt-2 break-words text-[16px] font-semibold leading-6 text-[#1a1a1a] [overflow-wrap:anywhere] sm:text-[18px]">
+                {selectedSubmissionContract?.title || "Contract submission"}
+              </div>
+              <div className="mt-1 text-[12px] capitalize text-[#6b6762]">
+                Status: {selectedSubmission.status === "rejected" ? "Changes requested" : selectedSubmission.status}
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-[12px] border border-[#EFECE7] bg-[#FAF8F5] p-4">
+              <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">
+                Freelancer Message
+              </div>
+              <p className="mt-2 text-[13px] leading-6 text-[#1a1a1a]">
+                {selectedSubmission.description || "Work submitted for review."}
+              </p>
+              {selectedSubmission.link ? (
+                <p className="mt-3 break-all text-[12px] leading-5 text-[#6b6762] [overflow-wrap:anywhere]">
+                  Link: <a href={selectedSubmission.link} target="_blank" rel="noreferrer" className="text-[#8C4F00] underline">{selectedSubmission.link}</a>
+                </p>
+              ) : null}
+              {selectedSubmission.attachment ? (
+                <p className="mt-2 break-all text-[12px] leading-5 text-[#6b6762] [overflow-wrap:anywhere]">
+                  Attachment: <a href={selectedSubmission.attachment.url} target="_blank" rel="noreferrer" className="text-[#8C4F00] underline">{selectedSubmission.attachment.name}</a>
+                </p>
+              ) : null}
+            </div>
+
+            {selectedSubmission.revisionMessage ? (
+              <div className="mt-4 rounded-[12px] border border-[#F8D7DA] bg-[#FFF5F5] p-4">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#B42318]">
+                  Adjustment Note
+                </div>
+                <p className="mt-2 text-[13px] leading-6 text-[#7F1D1D]">{selectedSubmission.revisionMessage}</p>
+              </div>
+            ) : null}
+
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+              {selectedSubmission.status === "pending" ? (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full rounded-full sm:w-auto"
+                    onClick={() => openChangeRequest(selectedSubmission.id)}
+                  >
+                    Request Changes
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="w-full rounded-full sm:w-auto"
+                    onClick={() => handleApproveSubmission(selectedSubmission.id)}
+                  >
+                    Approve & Pay
+                  </Button>
+                </>
+              ) : null}
+              {selectedSubmission.status === "rejected" ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full rounded-full sm:w-auto"
+                  onClick={() => openChangeRequest(selectedSubmission.id)}
+                >
+                  Edit Adjustment Note
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingChangeJob && (
+        <div className="fixed inset-0 z-[105] flex items-end justify-center px-2 py-2 sm:items-center sm:px-4 sm:py-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => {
+              if (!isRequestingChanges) setPendingChangeJobId(null);
+            }}
+          />
+          <div className="relative z-[106] max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-[14px] border border-[#EAE7E2] bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.2)] sm:rounded-[16px] sm:p-5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#8C4F00]">
+              Request Adjustments
+            </div>
+            <div className="mt-2 break-words text-[16px] font-semibold leading-6 text-[#1a1a1a] [overflow-wrap:anywhere] sm:text-[18px]">
+              {pendingChangeContract?.title || "Submitted work"}
+            </div>
+            <p className="mt-2 text-[13px] leading-6 text-[#6b6762]">
+              Tell the freelancer exactly what needs to change. This note will appear in their contracts page and in the chat.
+            </p>
+            <textarea
+              value={changeRequestNote}
+              onChange={(event) => setChangeRequestNote(event.target.value)}
+              rows={5}
+              placeholder="Example: Please adjust the homepage spacing and add the missing mobile menu before resubmitting."
+              className="mt-4 w-full rounded-[10px] border border-[#EAE7E2] bg-[#FAF8F5] px-3 py-2 text-[13px] text-[#1a1a1a] outline-none focus:ring-2 focus:ring-orange-400/20"
+            />
+            {changeRequestError ? (
+              <p className="mt-3 rounded-[10px] border border-red-100 bg-red-50 px-3 py-2 text-[12px] text-red-700">
+                {changeRequestError}
+              </p>
+            ) : null}
+            <div className="mt-5 grid grid-cols-1 gap-2 sm:flex sm:justify-end">
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full rounded-full sm:w-auto"
+                onClick={() => setPendingChangeJobId(null)}
+                disabled={isRequestingChanges}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                className="w-full rounded-full sm:w-auto"
+                onClick={() => void handleRejectSubmission()}
+                disabled={isRequestingChanges}
+              >
+                {isRequestingChanges ? "Sending..." : pendingChangeJob.status === "rejected" ? "Update Note" : "Send Request"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Payment Confirmation Modal */}
       {showPaymentModal && pendingApprovalJobId && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50">
-          <div className="relative w-full max-w-md rounded-[16px] border border-[#EAE7E2] bg-white p-6 shadow-[0_20px_50px_rgba(0,0,0,0.2)]">
+        <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black bg-opacity-50 px-2 py-2 sm:items-center sm:px-4 sm:py-4">
+          <div className="relative max-h-[92vh] w-full max-w-md overflow-y-auto rounded-[14px] border border-[#EAE7E2] bg-white p-4 shadow-[0_20px_50px_rgba(0,0,0,0.2)] sm:rounded-[16px] sm:p-6">
             <button
               type="button"
               onClick={() => {
@@ -1047,13 +1429,17 @@ export default function ClientContractsContent() {
                const lightningAddress = freelancerData?.settings?.payment?.lightningAddress;
               const releasedInstallments = contract?.paymentReleasedInstallments ?? 0;
               const nextMilestoneIndex = releasedInstallments + 1;
-              const milestone = contract?.milestones?.[nextMilestoneIndex - 1];
-              const milestoneAmount = milestone?.amount || contract?.budget || "0 sats";
-              const milestoneLabel = milestone?.name || `Milestone ${nextMilestoneIndex}`;
+              const milestone = contract?.milestones?.find((item: any, index) => Number(item.index ?? index + 1) === nextMilestoneIndex);
+              const milestoneAmountSats = Number((milestone as any)?.freelancerAmountSats ?? calculateInstallmentAmount(contract?.paymentTotalAmountSats || parseSats(contract?.budget ?? "0"), contract?.paymentInstallments ?? 1, nextMilestoneIndex));
+              const milestoneAmount = `${milestoneAmountSats.toLocaleString()} sats`;
+              const milestoneFundedSats = milestone ? Number((milestone as any).fundedSats ?? 0) : milestoneAmountSats;
+              const milestoneReleasedSats = milestone ? Number((milestone as any).releasedSats ?? 0) : 0;
+              const milestoneLabel = milestone?.title || milestone?.name || `Milestone ${nextMilestoneIndex}`;
               const isMilestoneFunded =
                 contract &&
                 (contract.paymentStatus === "funded" || contract.paymentStatus === "released") &&
-                (contract.paymentCurrentInstallment ?? 0) >= nextMilestoneIndex;
+                (contract.paymentCurrentInstallment ?? 0) >= nextMilestoneIndex &&
+                milestoneFundedSats - milestoneReleasedSats >= milestoneAmountSats;
               const canApprove = isMilestoneFunded && !loadingFreelancer;
 
               return (
@@ -1094,7 +1480,7 @@ export default function ClientContractsContent() {
                     By approving this work, you confirm that the milestone payment will be processed to the freelancer's Lightning wallet.
                   </div>
 
-                  <div className="flex gap-3">
+                  <div className="grid grid-cols-1 gap-3 sm:flex">
                     <button
                       type="button"
                       onClick={() => {

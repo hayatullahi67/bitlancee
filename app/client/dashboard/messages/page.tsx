@@ -52,6 +52,19 @@ interface ChatMessage {
   };
 }
 
+type FundingMode = "full" | "per_milestone";
+
+type EscrowMilestone = {
+  index: number;
+  title: string;
+  freelancerAmountSats: number;
+  platformFeeSats: number;
+  totalClientPaysSats: number;
+  fundedSats: number;
+  releasedSats: number;
+  status: "pending" | "funded" | "submitted" | "approved" | "released";
+};
+
 type Conversation = {
   id: string;
   jobId: string;
@@ -76,6 +89,14 @@ type Conversation = {
   paymentInstallments?: number;
   paymentCurrentInstallment?: number;
   paymentPaidAmountSats?: number;
+  paymentTotalChargedSats?: number;
+  platformFeePercent?: number;
+  platformFeeSats?: number;
+  paymentMode?: FundingMode;
+  milestones?: EscrowMilestone[];
+  escrowFundedTotalSats?: number;
+  escrowReleasedSats?: number;
+  invoiceMilestoneIndex?: number;
   paymentRequest?: string;
   paymentHash?: string;
   workStatus?: "not_started" | "in_progress" | "submitted" | "changes_requested" | "approved" | "completed";
@@ -123,6 +144,25 @@ const calculateInstallmentAmount = (total: number, installments: number, install
   const remainder = safeTotal % safeInstallments;
   return base + (safeInstallment <= remainder ? 1 : 0);
 };
+
+const PLATFORM_FEE_PERCENT = 5;
+
+const buildMilestones = (jobAmount: number, totalClientPayable: number, count: number, titles: string[]) =>
+  Array.from({ length: count }, (_, index) => {
+    const installment = index + 1;
+    const freelancerAmountSats = calculateInstallmentAmount(jobAmount, count, installment);
+    const totalClientPaysSats = calculateInstallmentAmount(totalClientPayable, count, installment);
+    return {
+      index: installment,
+      title: titles[index]?.trim() || (count === 1 ? "Complete project" : `Milestone ${installment}`),
+      freelancerAmountSats,
+      platformFeeSats: Math.max(0, totalClientPaysSats - freelancerAmountSats),
+      totalClientPaysSats,
+      fundedSats: 0,
+      releasedSats: 0,
+      status: "pending" as const,
+    };
+  });
 
 export default function ClientMessagesPage() {
   const searchParams = useSearchParams();
@@ -214,6 +254,14 @@ export default function ClientMessagesPage() {
               paymentInstallments: Number(data.paymentInstallments ?? 0),
               paymentCurrentInstallment: Number(data.paymentCurrentInstallment ?? 0),
               paymentPaidAmountSats: Number(data.paymentPaidAmountSats ?? 0),
+              paymentTotalChargedSats: Number(data.paymentTotalChargedSats ?? 0),
+              platformFeePercent: Number(data.platformFeePercent ?? PLATFORM_FEE_PERCENT),
+              platformFeeSats: Number(data.platformFeeSats ?? 0),
+              paymentMode: data.paymentMode ?? "full",
+              milestones: Array.isArray(data.milestones) ? data.milestones : [],
+              escrowFundedTotalSats: Number(data.escrowFundedTotalSats ?? 0),
+              escrowReleasedSats: Number(data.escrowReleasedSats ?? 0),
+              invoiceMilestoneIndex: Number(data.invoiceMilestoneIndex ?? 0),
               paymentRequest: data.paymentRequest ?? "",
               paymentHash: data.paymentHash ?? "",
               workStatus: data.workStatus ?? "not_started",
@@ -401,7 +449,15 @@ export default function ClientMessagesPage() {
     });
   };
 
-  const handleCreatePaymentInvoice = async (installments = 1) => {
+  const handleCreatePaymentInvoice = async ({
+    installments = 1,
+    fundingMode = "full",
+    milestoneTitles = [],
+  }: {
+    installments: number;
+    fundingMode: FundingMode;
+    milestoneTitles: string[];
+  }) => {
     if (!selectedConversation || !currentUserId) return;
 
     const contractId =
@@ -411,7 +467,7 @@ export default function ClientMessagesPage() {
 
     const contractSnap = await getDoc(doc(firebaseDb, "contracts", contractId));
     const contractData = contractSnap.exists() ? (contractSnap.data() as any) : {};
-    const paidAmount = selectedConversation.paymentPaidAmountSats || Number(contractData.paymentPaidAmountSats ?? 0) || 0;
+    const fundedAmount = selectedConversation.escrowFundedTotalSats || Number(contractData.escrowFundedTotalSats ?? 0) || 0;
     const totalAmount =
       selectedConversation.paymentTotalAmountSats ||
       Number(contractData.paymentTotalAmountSats ?? 0) ||
@@ -419,27 +475,34 @@ export default function ClientMessagesPage() {
       parseSats(contractData.amount) ||
       selectedConversation.paymentAmountSats ||
       0;
-    const paymentInstallments =
-      paidAmount > 0
-        ? selectedConversation.paymentInstallments ||
-          Number(contractData.paymentInstallments ?? 0) ||
-          clampInstallments(installments)
-        : clampInstallments(installments);
-    const currentInstallment =
-      paidAmount > 0 && selectedConversation.paymentStatus === "funded"
-        ? Math.min(
-            paymentInstallments,
-            (selectedConversation.paymentCurrentInstallment || Number(contractData.paymentCurrentInstallment ?? 1) || 1) + 1
-          )
-        : paidAmount > 0
-          ? selectedConversation.paymentCurrentInstallment ||
-            Number(contractData.paymentCurrentInstallment ?? 0) ||
-            1
-          : 1;
-    const amount = calculateInstallmentAmount(totalAmount, paymentInstallments, currentInstallment);
+    const paymentInstallments = selectedConversation.paymentInstallments || Number(contractData.paymentInstallments ?? 0) || clampInstallments(installments);
+    const platformFeeSats = Math.ceil(totalAmount * (PLATFORM_FEE_PERCENT / 100));
+    const totalClientPayable = totalAmount + platformFeeSats;
+    const existingMilestones = Array.isArray(selectedConversation.milestones) && selectedConversation.milestones.length
+      ? selectedConversation.milestones
+      : Array.isArray(contractData.milestones) && contractData.milestones.length
+        ? contractData.milestones
+        : buildMilestones(totalAmount, totalClientPayable, paymentInstallments, milestoneTitles);
+    const milestones = existingMilestones.map((milestone: any, index: number) => ({
+      index: Number(milestone.index ?? index + 1),
+      title: milestone.title || milestoneTitles[index] || `Milestone ${index + 1}`,
+      freelancerAmountSats: Number(milestone.freelancerAmountSats ?? calculateInstallmentAmount(totalAmount, paymentInstallments, index + 1)),
+      platformFeeSats: Number(milestone.platformFeeSats ?? 0),
+      totalClientPaysSats: Number(milestone.totalClientPaysSats ?? calculateInstallmentAmount(totalClientPayable, paymentInstallments, index + 1)),
+      fundedSats: Number(milestone.fundedSats ?? 0),
+      releasedSats: Number(milestone.releasedSats ?? 0),
+      status: milestone.status ?? "pending",
+    })) as EscrowMilestone[];
+    const nextMilestone =
+      milestones.find((milestone) => milestone.status !== "funded" && milestone.status !== "released") ??
+      milestones[milestones.length - 1];
+    const currentInstallment = fundingMode === "full" ? 1 : nextMilestone.index;
+    const amount = fundingMode === "full"
+      ? Math.max(0, totalClientPayable - fundedAmount)
+      : Math.max(0, nextMilestone.totalClientPaysSats - nextMilestone.fundedSats);
 
     if (!totalAmount || !amount) {
-      throw new Error("Contract amount is missing. Add a budget before creating invoice.");
+      throw new Error("Contract amount is missing or escrow is already fully funded.");
     }
 
     const res = await fetch("/api/create-invoice", {
@@ -472,19 +535,32 @@ export default function ClientMessagesPage() {
       paymentProvider: "blink",
       paymentStatus: "invoice_created",
       paymentTotalAmountSats: totalAmount,
+      paymentSubtotalSats: totalAmount,
+      platformFeePercent: PLATFORM_FEE_PERCENT,
+      platformFeeSats,
+      paymentTotalChargedSats: totalClientPayable,
+      paymentMode: fundingMode,
       paymentInstallments,
       paymentCurrentInstallment: currentInstallment,
       paymentAmountSats: Number(invoice?.satoshis ?? amount),
+      invoiceMilestoneIndex: currentInstallment,
       paymentRequest,
       paymentHash: paymentHash ?? "",
       paymentCreatedAt: serverTimestamp(),
+      milestones,
+      escrowFundedTotalSats: fundedAmount,
+      escrowReleasedSats: Number(contractData.escrowReleasedSats ?? selectedConversation.escrowReleasedSats ?? 0),
       updatedAt: serverTimestamp(),
     };
+    const escrowId = contractId;
+    const invoiceMessage = fundingMode === "full"
+      ? `Lightning invoice created for full escrow (${totalClientPayable.toLocaleString()} sats including ${platformFeeSats.toLocaleString()} sats platform fee).`
+      : `Lightning invoice created for Milestone ${currentInstallment}: ${nextMilestone.title}.`;
 
     await Promise.all([
       updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
         ...paymentUpdate,
-        "lastMessage.text": `Lightning invoice created for milestone ${currentInstallment} of ${paymentInstallments}.`,
+        "lastMessage.text": invoiceMessage,
         "lastMessage.senderId": "system",
         "lastMessage.createdAt": serverTimestamp(),
         [`unread.${currentUserId}`]: 0,
@@ -498,10 +574,37 @@ export default function ClientMessagesPage() {
         },
         { merge: true }
       ),
+      setDoc(
+        doc(firebaseDb, "escrows", escrowId),
+        {
+          escrowId,
+          conversationId: selectedConversation.id,
+          contractId,
+          jobId: selectedConversation.jobId,
+          jobTitle: selectedConversation.jobTitle,
+          clientId: selectedConversation.clientId,
+          clientName: selectedConversation.clientName,
+          freelancerId: selectedConversation.freelancerId,
+          freelancerName: selectedConversation.freelancerName,
+          jobAmountSats: totalAmount,
+          platformFeePercent: PLATFORM_FEE_PERCENT,
+          platformFeeSats,
+          totalClientPayableSats: totalClientPayable,
+          paymentMode: fundingMode,
+          milestoneCount: paymentInstallments,
+          milestones,
+          totalFundedSats: fundedAmount,
+          totalReleasedToFreelancerSats: Number(contractData.escrowReleasedSats ?? selectedConversation.escrowReleasedSats ?? 0),
+          status: fundedAmount > 0 ? "partially_funded" : "invoice_created",
+          updatedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        },
+        { merge: true }
+      ),
       addDoc(collection(firebaseDb, "conversations", selectedConversation.id, "messages"), {
         senderId: "system",
         senderRole: "system",
-        text: `Lightning invoice created for milestone ${currentInstallment} of ${paymentInstallments}. Freelancer should wait for funding confirmation before starting this phase.`,
+        text: `${invoiceMessage} Freelancer should wait for funding confirmation before starting work.`,
         attachment: null,
         createdAt: serverTimestamp(),
       }),
@@ -536,29 +639,69 @@ export default function ClientMessagesPage() {
     if (blinkStatus === "PAID") {
       const paymentInstallments = selectedConversation.paymentInstallments || 1;
       const currentInstallment = selectedConversation.paymentCurrentInstallment || 1;
-      const paidAmount =
-        (selectedConversation.paymentPaidAmountSats || 0) +
-        (selectedConversation.paymentAmountSats || 0);
-      const allMilestonesFunded = currentInstallment >= paymentInstallments;
       const contractId =
         selectedConversation.jobId && selectedConversation.freelancerId
           ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
           : selectedConversation.id;
+      const paymentHash = statusPayload?.paymentHash ?? selectedConversation.paymentHash ?? "";
+      const contractSnap = await getDoc(doc(firebaseDb, "contracts", contractId));
+      const contractData = contractSnap.exists() ? (contractSnap.data() as any) : {};
+      if (paymentHash && contractData.lastFundedPaymentHash === paymentHash) {
+        return "funded";
+      }
+      const jobAmount = selectedConversation.paymentTotalAmountSats || Number(contractData.paymentTotalAmountSats ?? 0) || 0;
+      const platformFeeSats =
+        selectedConversation.platformFeeSats ||
+        Number(contractData.platformFeeSats ?? 0) ||
+        Math.ceil(jobAmount * (PLATFORM_FEE_PERCENT / 100));
+      const totalClientPayable = selectedConversation.paymentTotalChargedSats || Number(contractData.paymentTotalChargedSats ?? 0) || jobAmount + platformFeeSats;
+      const existingMilestones = Array.isArray(selectedConversation.milestones) && selectedConversation.milestones.length
+        ? selectedConversation.milestones
+        : Array.isArray(contractData.milestones) && contractData.milestones.length
+          ? contractData.milestones
+          : buildMilestones(jobAmount, totalClientPayable, paymentInstallments, []);
+      const invoiceAmount = selectedConversation.paymentAmountSats || 0;
+      const isFullFunding = (selectedConversation.paymentMode ?? contractData.paymentMode ?? "full") === "full";
+      const nextMilestones = existingMilestones.map((milestone: any) => {
+        const shouldFund = isFullFunding || Number(milestone.index) === currentInstallment;
+        if (!shouldFund) return milestone;
+        return {
+          ...milestone,
+          fundedSats: Number(milestone.totalClientPaysSats ?? 0),
+          status: milestone.status === "released" ? "released" : "funded",
+        };
+      }) as EscrowMilestone[];
+      const fundedFreelancerAmount = nextMilestones.reduce(
+        (sum, milestone) => sum + (milestone.status === "funded" || milestone.status === "released" ? milestone.freelancerAmountSats : 0),
+        0
+      );
+      const fundedTotalAmount = isFullFunding
+        ? totalClientPayable
+        : (selectedConversation.escrowFundedTotalSats || Number(contractData.escrowFundedTotalSats ?? 0) || 0) + invoiceAmount;
+      const fundedThroughInstallment = isFullFunding ? paymentInstallments : currentInstallment;
+      const firstReadyMilestone = nextMilestones.find((milestone) => milestone.status === "funded" && !milestone.releasedSats) ?? nextMilestones[0];
+      const allMilestonesFunded = nextMilestones.every((milestone) => milestone.status === "funded" || milestone.status === "released");
       const fundedUpdate = {
         paymentStatus: "funded",
         workStatus: "in_progress",
         paymentInstallments,
-        paymentCurrentInstallment: currentInstallment,
-        paymentPaidAmountSats: paidAmount,
+        paymentCurrentInstallment: fundedThroughInstallment,
+        paymentPaidAmountSats: fundedFreelancerAmount,
+        paymentTotalChargedSats: totalClientPayable,
+        platformFeePercent: PLATFORM_FEE_PERCENT,
+        platformFeeSats,
+        escrowFundedTotalSats: fundedTotalAmount,
+        milestones: nextMilestones,
         paymentReceivedAt: serverTimestamp(),
         paymentPreimage: statusPayload?.paymentPreimage ?? "",
-        paymentHash: statusPayload?.paymentHash ?? selectedConversation.paymentHash ?? "",
+        paymentHash,
+        lastFundedPaymentHash: paymentHash,
         updatedAt: serverTimestamp(),
       };
-      const fundedMessage = allMilestonesFunded
-        ? "Payment received. Escrow is funded and work can start."
-        : `Milestone ${currentInstallment} of ${paymentInstallments} is funded. Create the next milestone invoice when ready.`;
-      const systemMessageId = `payment_funded_${currentInstallment}_${statusPayload?.paymentHash ?? selectedConversation.id}`;
+      const fundedMessage = isFullFunding
+        ? `Full escrow funded for ${paymentInstallments} milestone${paymentInstallments === 1 ? "" : "s"}. Start work for Milestone ${firstReadyMilestone.index}: ${firstReadyMilestone.title}.`
+        : `Client funded Milestone ${firstReadyMilestone.index}: ${firstReadyMilestone.title}. You can start work for this milestone.`;
+      const systemMessageId = `payment_funded_${currentInstallment}_${paymentHash || selectedConversation.id}`;
 
       await Promise.all([
         updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
@@ -570,6 +713,33 @@ export default function ClientMessagesPage() {
           [`unread.${selectedConversation.freelancerId}`]: increment(1),
         }),
         setDoc(doc(firebaseDb, "contracts", contractId), fundedUpdate, { merge: true }),
+        setDoc(
+          doc(firebaseDb, "escrows", contractId),
+          {
+            escrowId: contractId,
+            conversationId: selectedConversation.id,
+            contractId,
+            jobId: selectedConversation.jobId,
+            jobTitle: selectedConversation.jobTitle,
+            clientId: selectedConversation.clientId,
+            clientName: selectedConversation.clientName,
+            freelancerId: selectedConversation.freelancerId,
+            freelancerName: selectedConversation.freelancerName,
+            jobAmountSats: jobAmount,
+            platformFeePercent: PLATFORM_FEE_PERCENT,
+            platformFeeSats,
+            totalClientPayableSats: totalClientPayable,
+            paymentMode: selectedConversation.paymentMode ?? contractData.paymentMode ?? "full",
+            milestoneCount: paymentInstallments,
+            milestones: nextMilestones,
+            totalFundedSats: fundedTotalAmount,
+            totalReleasedToFreelancerSats: Number(contractData.escrowReleasedSats ?? selectedConversation.escrowReleasedSats ?? 0),
+            status: allMilestonesFunded ? "funded" : "partially_funded",
+            lastFundedPaymentHash: paymentHash,
+            updatedAt: serverTimestamp(),
+          },
+          { merge: true }
+        ),
         setDoc(
           doc(firebaseDb, "conversations", selectedConversation.id, "messages", systemMessageId),
           {
@@ -638,6 +808,11 @@ export default function ClientMessagesPage() {
                   paymentInstallments={selectedConversation.paymentInstallments}
                   paymentCurrentInstallment={selectedConversation.paymentCurrentInstallment}
                   paymentPaidAmountSats={selectedConversation.paymentPaidAmountSats}
+                  paymentTotalChargedSats={selectedConversation.paymentTotalChargedSats}
+                  platformFeePercent={selectedConversation.platformFeePercent}
+                  platformFeeSats={selectedConversation.platformFeeSats}
+                  paymentMode={selectedConversation.paymentMode}
+                  milestones={selectedConversation.milestones}
                   paymentRequest={selectedConversation.paymentRequest}
                   workStatus={selectedConversation.workStatus}
                   onCreatePaymentInvoice={handleCreatePaymentInvoice}

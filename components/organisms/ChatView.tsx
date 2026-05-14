@@ -38,6 +38,19 @@ interface ChatMessageType {
   };
 }
 
+type FundingMode = 'full' | 'per_milestone';
+
+interface EscrowMilestone {
+  index: number;
+  title: string;
+  freelancerAmountSats: number;
+  platformFeeSats: number;
+  totalClientPaysSats: number;
+  fundedSats?: number;
+  releasedSats?: number;
+  status?: 'pending' | 'funded' | 'submitted' | 'approved' | 'released';
+}
+
 interface ChatViewProps {
   message: Message;
   chatMessages: ChatMessageType[];
@@ -51,9 +64,18 @@ interface ChatViewProps {
   paymentInstallments?: number;
   paymentCurrentInstallment?: number;
   paymentPaidAmountSats?: number;
+  paymentTotalChargedSats?: number;
+  platformFeePercent?: number;
+  platformFeeSats?: number;
+  paymentMode?: FundingMode;
+  milestones?: EscrowMilestone[];
   paymentRequest?: string;
   workStatus?: 'not_started' | 'in_progress' | 'submitted' | 'changes_requested' | 'approved' | 'completed';
-  onCreatePaymentInvoice?: (installments: number) => Promise<string | void>;
+  onCreatePaymentInvoice?: (options: {
+    installments: number;
+    fundingMode: FundingMode;
+    milestoneTitles: string[];
+  }) => Promise<string | void>;
   onVerifyPayment?: (paymentRequest?: string) => Promise<'funded' | 'pending' | 'expired'>;
 }
 
@@ -70,6 +92,11 @@ export default function ChatView({
   paymentInstallments,
   paymentCurrentInstallment,
   paymentPaidAmountSats = 0,
+  paymentTotalChargedSats,
+  platformFeePercent = 5,
+  platformFeeSats,
+  paymentMode = 'full',
+  milestones = [],
   paymentRequest,
   workStatus = 'not_started',
   onCreatePaymentInvoice,
@@ -83,6 +110,8 @@ export default function ChatView({
   const [verificationComplete, setVerificationComplete] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [selectedInstallments, setSelectedInstallments] = useState(1);
+  const [selectedFundingMode, setSelectedFundingMode] = useState<FundingMode>('full');
+  const [milestoneTitles, setMilestoneTitles] = useState<string[]>(['Complete project']);
   const [activePaymentRequest, setActivePaymentRequest] = useState('');
   const [invoiceCopied, setInvoiceCopied] = useState(false);
   const [isPaymentExpanded, setIsPaymentExpanded] = useState(false);
@@ -90,11 +119,25 @@ export default function ChatView({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasPaidMilestone = paymentPaidAmountSats > 0 || paymentStatus === 'funded' || paymentStatus === 'released';
   const totalAmount = paymentTotalAmountSats || paymentAmountSats || 0;
+  const storedPlatformFee = Number(platformFeeSats ?? 0);
+  const computedPlatformFee =
+    storedPlatformFee > 0 ? storedPlatformFee : Math.ceil(totalAmount * (platformFeePercent / 100));
+  const clientPayableTotal =
+    paymentTotalChargedSats && paymentTotalChargedSats > 0
+      ? paymentTotalChargedSats
+      : totalAmount + computedPlatformFee;
   const activeInstallments = Math.max(
     1,
     Math.min(3, hasPaidMilestone ? paymentInstallments || 1 : selectedInstallments || paymentInstallments || 1)
   );
   const activeMilestone = Math.max(1, Math.min(activeInstallments, paymentCurrentInstallment || 1));
+  const activeMilestoneData =
+    milestones.find((milestone) => milestone.index === activeMilestone) ?? null;
+  const hasOpenFundedMilestone = milestones.some(
+    (milestone) =>
+      milestone.releasedSats === 0 &&
+      (milestone.status === 'funded' || milestone.status === 'submitted' || milestone.status === 'approved')
+  );
   const showCurrentInvoice =
     paymentStatus === 'invoice_created' &&
     !!paymentRequest &&
@@ -109,11 +152,18 @@ export default function ChatView({
     viewerRole === 'client' &&
     paymentStatus !== 'released' &&
     (paymentStatus !== 'invoice_created' || !showCurrentInvoice) &&
-    !(paymentStatus === 'funded' && activeMilestone >= activeInstallments);
+    !(paymentStatus === 'funded' && activeMilestone >= activeInstallments) &&
+    !(paymentStatus === 'funded' && hasOpenFundedMilestone);
   const splitAmount = (installment: number, count = selectedInstallments) => {
     if (!totalAmount) return 0;
     const base = Math.floor(totalAmount / count);
     const remainder = totalAmount % count;
+    return base + (installment <= remainder ? 1 : 0);
+  };
+  const splitClientAmount = (installment: number, count = selectedInstallments) => {
+    if (!clientPayableTotal) return 0;
+    const base = Math.floor(clientPayableTotal / count);
+    const remainder = clientPayableTotal % count;
     return base + (installment <= remainder ? 1 : 0);
   };
 
@@ -130,6 +180,15 @@ export default function ChatView({
     setPaymentError('');
     setInvoiceCopied(false);
   }, [message.id]);
+
+  useEffect(() => {
+    setMilestoneTitles((prev) =>
+      Array.from({ length: selectedInstallments }, (_, index) => {
+        const existing = prev[index] || milestones[index]?.title;
+        return existing || (selectedInstallments === 1 ? 'Complete project' : `Milestone ${index + 1}`);
+      })
+    );
+  }, [selectedInstallments]);
 
   useEffect(() => {
     if (!showCurrentInvoice || !onVerifyPayment || verificationComplete) return;
@@ -184,7 +243,14 @@ export default function ChatView({
     try {
       setIsCreatingInvoice(true);
       setPaymentError('');
-      const newPaymentRequest = await onCreatePaymentInvoice(selectedInstallments);
+      const normalizedTitles = milestoneTitles
+        .slice(0, selectedInstallments)
+        .map((title, index) => title.trim() || `Milestone ${index + 1}`);
+      const newPaymentRequest = await onCreatePaymentInvoice({
+        installments: selectedInstallments,
+        fundingMode: selectedFundingMode,
+        milestoneTitles: normalizedTitles,
+      });
       if (newPaymentRequest) {
         setActivePaymentRequest(newPaymentRequest);
         setInvoiceCopied(false);
@@ -346,13 +412,20 @@ export default function ChatView({
                 {paymentAmountSats ? (
                   <p className="mt-1 text-[11px] font-semibold text-[#8C4F00]">
                     {paymentAmountSats.toLocaleString()} sats
-                    {activeInstallments > 1 ? ` for milestone ${activeMilestone} of ${activeInstallments}` : ''}
+                    {activeInstallments > 1 ? ` invoice for milestone ${activeMilestone} of ${activeInstallments}` : ''}
                   </p>
                 ) : null}
-                {totalAmount && activeInstallments > 1 ? (
+                {activeMilestoneData ? (
                   <p className="mt-1 text-[11px] text-[#6b6762]">
-                    Total contract: {totalAmount.toLocaleString()} sats
+                    Current milestone: {activeMilestoneData.title}
                   </p>
+                ) : null}
+                {totalAmount ? (
+                  <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] text-[#6b6762] sm:grid-cols-3">
+                    <span>Job: {totalAmount.toLocaleString()} sats</span>
+                    <span>Platform fee ({platformFeePercent}%): {computedPlatformFee.toLocaleString()} sats</span>
+                    <span>Client total: {clientPayableTotal.toLocaleString()} sats</span>
+                  </div>
                 ) : null}
               </div>
 
@@ -397,7 +470,7 @@ export default function ChatView({
               {canChoosePlan ? (
                 <div className="rounded-[10px] border border-[#EAE7E2] bg-white px-3 py-3">
                   <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#8C4F00]">
-                    Payment schedule
+                    Milestone schedule
                   </div>
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     {[1, 2, 3].map((count) => (
@@ -411,17 +484,57 @@ export default function ChatView({
                             : 'border-[#EAE7E2] bg-[#F7F6F3] text-[#6b6762]'
                         }`}
                       >
-                        {count === 1 ? 'Once' : `${count} times`}
+                        {count === 1 ? '1 milestone' : `${count} milestones`}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid gap-2">
+                    {Array.from({ length: selectedInstallments }, (_, index) => (
+                      <label key={index} className="block">
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9e9690]">
+                          Milestone {index + 1} title
+                        </span>
+                        <input
+                          value={milestoneTitles[index] ?? ''}
+                          onChange={(event) => {
+                            const next = [...milestoneTitles];
+                            next[index] = event.target.value;
+                            setMilestoneTitles(next);
+                          }}
+                          placeholder={`What should the freelancer submit for milestone ${index + 1}?`}
+                          className="mt-1 w-full rounded-[10px] border border-[#EAE7E2] bg-[#FAF8F5] px-3 py-2 text-[12px] text-[#1a1a1a] outline-none focus:ring-2 focus:ring-orange-400/20"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {[
+                      { value: 'full' as FundingMode, label: 'Pay full escrow now' },
+                      { value: 'per_milestone' as FundingMode, label: 'Pay per milestone' },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setSelectedFundingMode(option.value)}
+                        className={`rounded-[10px] border px-3 py-2 text-left text-[11px] font-semibold transition ${
+                          selectedFundingMode === option.value
+                            ? 'border-[#CC7000] bg-[#FFF4E6] text-[#8C4F00]'
+                            : 'border-[#EAE7E2] bg-[#F7F6F3] text-[#6b6762]'
+                        }`}
+                      >
+                        {option.label}
                       </button>
                     ))}
                   </div>
                   {totalAmount ? (
                     <p className="mt-2 text-[11px] leading-5 text-[#6b6762]">
-                      First invoice: {splitAmount(1).toLocaleString()} sats from a {totalAmount.toLocaleString()} sats contract.
+                      {selectedFundingMode === 'full'
+                        ? `Invoice: ${clientPayableTotal.toLocaleString()} sats. This includes ${computedPlatformFee.toLocaleString()} sats platform fee. Releases still happen per milestone.`
+                        : `First invoice: ${splitClientAmount(1).toLocaleString()} sats. Freelancer portion: ${splitAmount(1).toLocaleString()} sats, with the platform fee included.`}
                     </p>
                   ) : (
                     <p className="mt-2 text-[11px] leading-5 text-[#6b6762]">
-                      The contract amount will be split evenly when the invoice is created.
+                      Add a contract budget before creating an escrow invoice.
                     </p>
                   )}
                 </div>

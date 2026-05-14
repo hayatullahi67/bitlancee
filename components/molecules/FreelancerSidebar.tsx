@@ -101,6 +101,7 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
   const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
   const [hasUnreadContracts, setHasUnreadContracts] = useState(false);
+  const [hasRejectedSubmission, setHasRejectedSubmission] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -146,12 +147,15 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
   useEffect(() => {
     let unsubscribeMessages: (() => void) | undefined;
     let unsubscribeContracts: (() => void) | undefined;
+    let unsubscribeSubmittedJobs: (() => void) | undefined;
     const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
       if (!user) {
         setHasUnreadMessages(false);
         setHasUnreadContracts(false);
+        setHasRejectedSubmission(false);
         if (unsubscribeMessages) unsubscribeMessages();
         if (unsubscribeContracts) unsubscribeContracts();
+        if (unsubscribeSubmittedJobs) unsubscribeSubmittedJobs();
         return;
       }
 
@@ -175,12 +179,22 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
       unsubscribeContracts = onSnapshot(contractsQuery, (snapshot) => {
         setHasUnreadContracts(!snapshot.empty);
       });
+
+      const submittedJobsQuery = query(
+        collection(firebaseDb, 'submitted_jobs'),
+        where('freelancerId', '==', user.uid),
+        where('status', '==', 'rejected')
+      );
+      unsubscribeSubmittedJobs = onSnapshot(submittedJobsQuery, (snapshot) => {
+        setHasRejectedSubmission(!snapshot.empty);
+      });
     });
 
     return () => {
       unsubscribeAuth();
       if (unsubscribeMessages) unsubscribeMessages();
       if (unsubscribeContracts) unsubscribeContracts();
+      if (unsubscribeSubmittedJobs) unsubscribeSubmittedJobs();
     };
   }, []);
 
@@ -263,7 +277,7 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
             const isActive = active === item.href;
             const showDot =
               (item.label === 'Messages' && hasUnreadMessages) ||
-              (item.label === 'Contracts' && hasUnreadContracts);
+              (item.label === 'Contracts' && (hasUnreadContracts || hasRejectedSubmission));
             return (
               <Link
                 key={item.href}

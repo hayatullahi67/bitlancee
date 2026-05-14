@@ -59,6 +59,8 @@ type JobPost = {
   title: string;
   status: JobStatus;
   budget: string;
+  duration?: string;
+  companyLogo?: string;
   proposals: number;
   tags: string[];
   description?: string;
@@ -305,6 +307,8 @@ export default function ClientOverviewContent() {
               title: data.title ?? "",
               status: (data.status as JobStatus) ?? "Open",
               budget: data.budget ?? "",
+              duration: data.duration ?? "",
+              companyLogo: data.companyLogo ?? "",
               proposals: data.proposals ?? 0,
               tags: Array.isArray(data.skills) ? data.skills : [],
               description: data.description ?? "",
@@ -450,6 +454,7 @@ export default function ClientOverviewContent() {
                 <ClientJobPostCard
                   key={job.id}
                   {...job}
+                  companyLogoUrl={job.companyLogo}
                   showDetailsHint={false}
                   onSelect={() => {
                     setSelectedJobId(job.id);

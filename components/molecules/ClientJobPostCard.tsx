@@ -9,9 +9,10 @@ interface ClientJobPostCardProps {
   description?: string;
   status: "Open" | "Paused" | "In Review";
   budget: string;
+  duration?: string;
   proposals: number;
   tags: string[];
-  clientAvatarUrl?: string;
+  companyLogoUrl?: string;
   clientName?: string;
   isSelected?: boolean;
   onSelect?: () => void;
@@ -25,20 +26,21 @@ export default function ClientJobPostCard({
   description,
   status,
   budget,
+  duration,
   proposals,
   tags,
-  clientAvatarUrl,
+  companyLogoUrl,
   clientName,
   isSelected = false,
   onSelect,
   onEdit,
   showDetailsHint = true,
 }: ClientJobPostCardProps) {
-  const [avatarLoadFailed, setAvatarLoadFailed] = useState(false);
+  const [logoLoadFailed, setLogoLoadFailed] = useState(false);
 
   useEffect(() => {
-    setAvatarLoadFailed(false);
-  }, [clientAvatarUrl]);
+    setLogoLoadFailed(false);
+  }, [companyLogoUrl]);
 
   const statusStyles = {
     Open: "bg-[#E6F4EA] text-[#2E7D32]",
@@ -59,7 +61,8 @@ export default function ClientJobPostCard({
         .trim()
     : null;
 
-  const showAvatar = !!clientAvatarUrl && !avatarLoadFailed;
+  const durationLabel = duration?.trim() || null;
+  const showLogo = !!companyLogoUrl && !logoLoadFailed;
 
   return (
     <div
@@ -82,12 +85,12 @@ export default function ClientJobPostCard({
       <div className="flex items-start gap-4">
         <div className="flex-shrink-0">
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-[5px] bg-[#F7F4F0] ring-1 ring-[#EAE7E2]">
-            {showAvatar ? (
+            {showLogo ? (
               <img
-                src={clientAvatarUrl}
-                alt={clientName ? `${clientName} avatar` : "Client avatar"}
+                src={companyLogoUrl}
+                alt={clientName ? `${clientName} company logo` : "Company logo"}
                 className="h-full w-full object-cover"
-                onError={() => setAvatarLoadFailed(true)}
+                onError={() => setLogoLoadFailed(true)}
               />
             ) : (
               <svg
@@ -143,6 +146,11 @@ export default function ClientJobPostCard({
               {budgetLabel ? (
                 <span className="text-[12px] font-semibold text-[#8C4F00]">
                   {budgetLabel}
+                </span>
+              ) : null}
+              {durationLabel ? (
+                <span className="text-[11px] font-semibold text-[#6b6762]">
+                  {durationLabel}
                 </span>
               ) : null}
               {onEdit ? (

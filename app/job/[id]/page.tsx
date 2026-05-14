@@ -9,6 +9,7 @@ import {
   ShieldCheck,
   Globe,
   Bookmark,
+  Clock,
   Bold,
   Italic,
   Link2,
@@ -94,7 +95,7 @@ const formatMemberSince = (value: unknown) => {
 
 type ClientSidebarData = {
   name: string;
-  avatarUrl: string;
+  companyLogo: string;
   location: string;
   jobsPosted: number;
   hires: number;
@@ -113,7 +114,7 @@ export default function JobDetailPage() {
   const [isSaved, setIsSaved] = useState(false);
   const [clientSidebar, setClientSidebar] = useState<ClientSidebarData>({
     name: 'Client',
-    avatarUrl: '',
+    companyLogo: '',
     location: 'Remote',
     jobsPosted: 0,
     hires: 0,
@@ -205,7 +206,7 @@ export default function JobDetailPage() {
     if (!clientId) {
       setClientSidebar({
         name: job?.clientName ?? job?.clientCompany ?? 'Client',
-        avatarUrl: '',
+        companyLogo: job?.companyLogo ?? '',
         location: 'Remote',
         jobsPosted: 0,
         hires: 0,
@@ -246,7 +247,13 @@ export default function JobDetailPage() {
             job?.clientName ??
             job?.clientCompany ??
             'Client',
-          avatarUrl: clientData.avatarUrl ?? allData.avatarUrl ?? '',
+          companyLogo:
+            job?.companyLogo ??
+            clientData.companyLogo ??
+            clientData.companyLogoUrl ??
+            allData.companyLogo ??
+            allData.companyLogoUrl ??
+            '',
           location: clientData.location ?? allData.location ?? 'Remote',
           jobsPosted: Number(clientData.jobsPosted ?? jobsPostedFallback ?? 0),
           hires: Number(clientData.hires ?? hiresFallback ?? 0),
@@ -257,7 +264,7 @@ export default function JobDetailPage() {
         if (cancelled) return;
         setClientSidebar({
           name: job?.clientName ?? job?.clientCompany ?? 'Client',
-          avatarUrl: '',
+          companyLogo: job?.companyLogo ?? '',
           location: 'Remote',
           jobsPosted: 0,
           hires: 0,
@@ -328,6 +335,18 @@ export default function JobDetailPage() {
                     <p className="font-bold text-[13px] sm:text-[15px]">{budgetLabel}</p>
                   </div>
                 </div>
+
+                {job.duration ? (
+                  <div className="flex items-center gap-2 sm:gap-3">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-[#F6F3F1] flex items-center justify-center">
+                      <Clock className="w-4 h-4 sm:w-5 sm:h-5 text-[#92400E]" />
+                    </div>
+                    <div>
+                      <p className="text-[8px] sm:text-[9px] text-gray-400 uppercase font-extrabold tracking-widest">Duration</p>
+                      <p className="font-bold text-[13px] sm:text-[15px]">{job.duration}</p>
+                    </div>
+                  </div>
+                ) : null}
 
                 
                 {/* <div className="flex items-center gap-2 sm:gap-3">
@@ -649,8 +668,8 @@ export default function JobDetailPage() {
                 {/* Client Identity */}
                 <div className="flex items-center gap-3 sm:gap-4 mb-4 sm:mb-6">
                   <div className="w-10 h-10 sm:w-12 sm:h-12 bg-[#0C2D2B] rounded-full flex items-center justify-center shrink-0 overflow-hidden">
-                    {clientSidebar.avatarUrl ? (
-                      <img src={clientSidebar.avatarUrl} alt={clientSidebar.name} className="h-full w-full object-cover" />
+                    {clientSidebar.companyLogo ? (
+                      <img src={clientSidebar.companyLogo} alt={`${clientSidebar.name} company logo`} className="h-full w-full object-cover" />
                     ) : (
                       <span className="text-white text-[8px] sm:text-[9px] font-extrabold">{clientInitials}</span>
                     )}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/atoms/Button";
 import ClientJobPostCard from "@/components/molecules/ClientJobPostCard";
@@ -31,6 +31,8 @@ type JobPost = {
   description?: string;
   status: JobStatus;
   budget: string;
+  duration?: string;
+  companyLogo?: string;
   proposals: number;
   tags: string[];
   urgent?: boolean;
@@ -74,19 +76,25 @@ export default function ClientJobPostsContent() {
   const [isPostModalOpen, setIsPostModalOpen] = useState(searchParams.get('action') === 'new');
   const [postTitle, setPostTitle] = useState("");
   const [postBudget, setPostBudget] = useState("");
+  const [postDuration, setPostDuration] = useState("");
+  const [postCompanyLogo, setPostCompanyLogo] = useState("");
+  const [postCompanyLogoUploading, setPostCompanyLogoUploading] = useState(false);
   const [postType, setPostType] = useState("Fixed Price");
   const [postDescription, setPostDescription] = useState("");
   const [postUrgent, setPostUrgent] = useState(false);
   const [skillInput, setSkillInput] = useState("");
   const [postSkills, setPostSkills] = useState<string[]>([]);
   const [postCategory, setPostCategory] = useState("");
-  const [clientAvatarUrl, setClientAvatarUrl] = useState("");
+  const [clientCompanyLogoUrl, setClientCompanyLogoUrl] = useState("");
   const [clientName, setClientName] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
   const [isEditingJob, setIsEditingJob] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const [editTitle, setEditTitle] = useState("");
   const [editBudget, setEditBudget] = useState("");
+  const [editDuration, setEditDuration] = useState("");
+  const [editCompanyLogo, setEditCompanyLogo] = useState("");
+  const [editCompanyLogoUploading, setEditCompanyLogoUploading] = useState(false);
   const [editType, setEditType] = useState("Fixed Price");
   const [editDescription, setEditDescription] = useState("");
   const [editUrgent, setEditUrgent] = useState(false);
@@ -101,6 +109,76 @@ export default function ClientJobPostsContent() {
   const triggerToast = (message: string) => {
     setShowToast({ show: true, message });
     setTimeout(() => setShowToast({ show: false, message: "" }), 3000);
+  };
+
+  const uploadCompanyLogo = async (file: File) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (!allowedTypes.includes(file.type)) {
+      throw new Error("Use JPG, PNG, or WEBP for the company logo.");
+    }
+
+    const maxBytes = 2 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new Error("Company logo image must be 2MB or less.");
+    }
+
+    const user = firebaseAuth.currentUser;
+    if (!user) {
+      throw new Error("Please log in again to upload a company logo.");
+    }
+
+    const idToken = await user.getIdToken();
+    const formData = new FormData();
+    formData.append("file", file);
+
+    const uploadResponse = await fetch("/api/company-logo/upload", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}` },
+      body: formData,
+    });
+    const uploadPayload = (await uploadResponse.json()) as {
+      companyLogo?: string;
+      companyLogoPublicId?: string;
+      error?: string;
+    };
+
+    if (!uploadResponse.ok || !uploadPayload.companyLogo) {
+      throw new Error(uploadPayload.error || "Company logo upload failed.");
+    }
+
+    return uploadPayload.companyLogo;
+  };
+
+  const handlePostCompanyLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setPostCompanyLogoUploading(true);
+      const companyLogo = await uploadCompanyLogo(file);
+      setPostCompanyLogo(companyLogo);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not upload company logo. Please retry.");
+    } finally {
+      setPostCompanyLogoUploading(false);
+      event.target.value = "";
+    }
+  };
+
+  const handleEditCompanyLogoUpload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      setEditCompanyLogoUploading(true);
+      const companyLogo = await uploadCompanyLogo(file);
+      setEditCompanyLogo(companyLogo);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Could not upload company logo. Please retry.");
+    } finally {
+      setEditCompanyLogoUploading(false);
+      event.target.value = "";
+    }
   };
 
   useEffect(() => {
@@ -139,6 +217,8 @@ export default function ClientJobPostsContent() {
               description: data.description ?? "",
               status: (data.status as JobStatus) ?? "Open",
               budget: data.budget ?? "",
+              duration: data.duration ?? "",
+              companyLogo: data.companyLogo ?? "",
               proposals: data.proposals ?? 0,
               tags: Array.isArray(data.skills) ? data.skills : [],
               urgent: !!data.urgent,
@@ -168,14 +248,18 @@ export default function ClientJobPostsContent() {
           const clientData = clientSnap.exists() ? (clientSnap.data() as any) : {};
           const allUsersData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
 
-          setClientAvatarUrl(
-            clientData.avatarUrl ?? allUsersData.avatarUrl ?? user.photoURL ?? ""
+          setClientCompanyLogoUrl(
+            clientData.companyLogo ??
+            clientData.companyLogoUrl ??
+            allUsersData.companyLogo ??
+            allUsersData.companyLogoUrl ??
+            ""
           );
           setClientName(
             clientData.fullName ?? allUsersData.fullName ?? user.displayName ?? "Client"
           );
         } catch {
-          setClientAvatarUrl(user.photoURL ?? "");
+          setClientCompanyLogoUrl("");
           setClientName(user.displayName ?? "Client");
         }
       };
@@ -296,6 +380,8 @@ export default function ClientJobPostsContent() {
     if (!editJob) return;
     setEditTitle(editJob.title ?? "");
     setEditBudget(editJob.budget ?? "");
+    setEditDuration(editJob.duration ?? "");
+    setEditCompanyLogo(editJob.companyLogo ?? clientCompanyLogoUrl ?? "");
     setEditType(editJob.jobType ?? "Fixed Price");
     setEditDescription(editJob.description ?? "");
     setEditUrgent(!!editJob.urgent);
@@ -303,7 +389,7 @@ export default function ClientJobPostsContent() {
     setEditSkillInput("");
     setEditStatus(editJob.status ?? "Open");
     setEditCategory(editJob.category ?? "");
-  }, [editJobId, editJob]);
+  }, [editJobId, editJob, clientCompanyLogoUrl]);
 
   return (
     <section className="w-full">
@@ -392,7 +478,7 @@ export default function ClientJobPostsContent() {
               <ClientJobPostCard
                 key={job.id}
                 {...job}
-                clientAvatarUrl={clientAvatarUrl}
+                companyLogoUrl={job.companyLogo || clientCompanyLogoUrl}
                 clientName={clientName}
                 isSelected={job.id === selectedJobId}
                 onSelect={() => {
@@ -440,7 +526,8 @@ export default function ClientJobPostsContent() {
                   {selectedJob.title}
                 </div>
                 <div className="mt-1 text-[12px] text-[#9e9690]">
-                  {selectedJob.status} | {formatBudget(selectedJob.budget)} | {selectedJob.proposals} proposals
+                  {selectedJob.status} | {formatBudget(selectedJob.budget)}
+                  {selectedJob.duration ? ` | ${selectedJob.duration}` : ""} | {selectedJob.proposals} proposals
                 </div>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {selectedJob.tags.map((tag) => (
@@ -704,6 +791,40 @@ export default function ClientJobPostsContent() {
                 />
               </div>
               <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Duration</label>
+                <input
+                  value={editDuration}
+                  onChange={(e) => setEditDuration(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="e.g. 4 weeks"
+                />
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Company Logo</label>
+                <div className="flex flex-col gap-3 rounded-lg border border-[#EAE7E2] px-3 py-3 sm:flex-row sm:items-center">
+                  <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-[8px] bg-[#F7F4F0] ring-1 ring-[#EAE7E2]">
+                    {editCompanyLogo ? (
+                      <img src={editCompanyLogo} alt="Company logo preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] font-semibold uppercase text-[#8C4F00]">Logo</span>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="inline-flex cursor-pointer items-center rounded-full border border-[#EAE7E2] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#6b6762] hover:bg-[#F7F4F0]">
+                      {editCompanyLogoUploading ? "Uploading..." : editCompanyLogo ? "Change Logo" : "Upload Logo"}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={handleEditCompanyLogoUpload}
+                        disabled={editCompanyLogoUploading}
+                      />
+                    </label>
+                    <p className="mt-2 text-[10px] text-[#9e9690]">JPG, PNG, or WEBP. Max 2MB.</p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Job Type</label>
                 <select
                   value={editType}
@@ -816,6 +937,14 @@ export default function ClientJobPostsContent() {
                     alert("Please enter a budget.");
                     return;
                   }
+                  if (!editDuration.trim()) {
+                    alert("Please enter a duration.");
+                    return;
+                  }
+                  if (!editCompanyLogo.trim()) {
+                    alert("Please upload a company logo.");
+                    return;
+                  }
                   if (!editDescription.trim() || editDescription.trim().length < 20) {
                     alert("Please write a description (at least 20 characters).");
                     return;
@@ -826,6 +955,8 @@ export default function ClientJobPostsContent() {
                       title: editTitle.trim(),
                       category: editCategory.trim(),
                       budget: editBudget.trim(),
+                      duration: editDuration.trim(),
+                      companyLogo: editCompanyLogo.trim(),
                       jobType: editType,
                       description: editDescription.trim(),
                       skills: editSkills,
@@ -838,9 +969,9 @@ export default function ClientJobPostsContent() {
                     setIsSavingEdit(false);
                   }
                 }}
-                disabled={isSavingEdit}
+                disabled={isSavingEdit || editCompanyLogoUploading}
               >
-                {isSavingEdit ? "Saving..." : "Save Changes"}
+                {isSavingEdit ? "Saving..." : editCompanyLogoUploading ? "Uploading Logo..." : "Save Changes"}
               </Button>
             </div>
           </div>
@@ -909,6 +1040,40 @@ export default function ClientJobPostsContent() {
                   className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
                   placeholder="450,000 sats"
                 />
+              </div>
+              <div className="flex flex-col gap-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Duration</label>
+                <input
+                  value={postDuration}
+                  onChange={(e) => setPostDuration(e.target.value)}
+                  className="rounded-lg border border-[#EAE7E2] px-3 py-2 text-[12px] focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="e.g. 4 weeks"
+                />
+              </div>
+              <div className="flex flex-col gap-2 md:col-span-2">
+                <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Company Logo</label>
+                <div className="flex flex-col gap-3 rounded-lg border border-[#EAE7E2] px-3 py-3 sm:flex-row sm:items-center">
+                  <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-[8px] bg-[#F7F4F0] ring-1 ring-[#EAE7E2]">
+                    {postCompanyLogo ? (
+                      <img src={postCompanyLogo} alt="Company logo preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-[10px] font-semibold uppercase text-[#8C4F00]">Logo</span>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="inline-flex cursor-pointer items-center rounded-full border border-[#EAE7E2] px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[#6b6762] hover:bg-[#F7F4F0]">
+                      {postCompanyLogoUploading ? "Uploading..." : postCompanyLogo ? "Change Logo" : "Upload Logo"}
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        className="hidden"
+                        onChange={handlePostCompanyLogoUpload}
+                        disabled={postCompanyLogoUploading}
+                      />
+                    </label>
+                    <p className="mt-2 text-[10px] text-[#9e9690]">JPG, PNG, or WEBP. Max 2MB.</p>
+                  </div>
+                </div>
               </div>
               <div className="flex flex-col gap-2">
                 <label className="text-[11px] uppercase tracking-[0.12em] text-[#9e9690]">Job Type</label>
@@ -1015,6 +1180,14 @@ export default function ClientJobPostsContent() {
                     alert("Please enter a budget.");
                     return;
                   }
+                  if (!postDuration.trim()) {
+                    alert("Please enter a duration.");
+                    return;
+                  }
+                  if (!postCompanyLogo.trim() && !clientCompanyLogoUrl) {
+                    alert("Please upload a company logo.");
+                    return;
+                  }
                   if (!postDescription.trim() || postDescription.trim().length < 20) {
                     alert("Please write a description (at least 20 characters).");
                     return;
@@ -1039,12 +1212,21 @@ export default function ClientJobPostsContent() {
                       allData.fullName ?? allData.email ?? "Client";
                     const clientCompany =
                       clientData.companyName ?? "";
+                    const companyLogo =
+                      postCompanyLogo.trim() ||
+                      clientData.companyLogo ||
+                      clientData.companyLogoUrl ||
+                      allData.companyLogo ||
+                      allData.companyLogoUrl ||
+                      "";
 
                     await addDoc(collection(firebaseDb, "jobs"), {
                       uuid,
                       title: postTitle.trim(),
                       category: postCategory.trim(),
                       budget: postBudget.trim(),
+                      duration: postDuration.trim(),
+                      companyLogo,
                       jobType: postType,
                       description: postDescription.trim(),
                       skills: postSkills,
@@ -1061,6 +1243,8 @@ export default function ClientJobPostsContent() {
                     setPostTitle("");
                     setPostCategory("");
                     setPostBudget("");
+                    setPostDuration("");
+                    setPostCompanyLogo("");
                     setPostType("Fixed Price");
                     setPostDescription("");
                     setPostUrgent(false);
@@ -1071,9 +1255,9 @@ export default function ClientJobPostsContent() {
                     setIsPublishing(false);
                   }
                 }}
-                disabled={isPublishing}
+                disabled={isPublishing || postCompanyLogoUploading}
               >
-                {isPublishing ? "Publishing..." : "Publish Job"}
+                {isPublishing ? "Publishing..." : postCompanyLogoUploading ? "Uploading Logo..." : "Publish Job"}
               </Button>
             </div>
           </div>
