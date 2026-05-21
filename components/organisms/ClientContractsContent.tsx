@@ -2095,64 +2095,110 @@ export default function ClientContractsContent() {
           ) : visibleContracts.length ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               {visibleContracts.map((contract) => {
-                const statusLabel = isFinishedContract(contract) ? "Finished" : isEscrowContract(contract) ? "Ongoing" : "Active";
+                const statusLabel = isFinishedContract(contract) ? "Finished" : isEscrowContract(contract) ? "In Progress" : "Active";
                 const statusColor =
                   statusLabel === "Finished" ? "bg-[#E6F4EA] text-[#2E7D32]"
-                  : statusLabel === "Ongoing" ? "bg-[#EFF6FF] text-[#1D4ED8]"
+                  : statusLabel === "In Progress" ? "bg-[#E6F4EA] text-[#2E7D32]"
                   : "bg-[#FFF4E6] text-[#8C4F00]";
 
                 const amountSats = contract.paymentTotalAmountSats ?? 0;
                 const amountLabel = amountSats > 0 ? `${amountSats.toLocaleString()} sats` : contract.budget ?? "—";
                 const freelancerInitials = getInitials(contract.freelancer ?? "F");
+                const stepIndex = isFinishedContract(contract)
+                  ? 4
+                  : contract.workStatus === "submitted"
+                    ? 3
+                    : isEscrowContract(contract) || contract.workStatus === "in_progress"
+                      ? 2
+                      : 1;
+                const steps = ["Contract Accepted", "Work in Progress", "Submitted", "Approved"];
+                const infoText = isFinishedContract(contract)
+                  ? "Contract approved. Payment has been released."
+                  : contract.workStatus === "submitted"
+                    ? "Work submitted for review. Open the contract to approve or request changes."
+                    : contract.workStatus === "changes_requested"
+                      ? "Changes requested. Waiting for the freelancer to resubmit."
+                      : "Work in progress. The freelancer can upload the deliverable when ready.";
 
                 return (
                   <div
                     key={contract.id}
                     className="flex flex-col rounded-[14px] border border-[#EAE7E2] bg-white p-4 shadow-[0_4px_16px_rgba(0,0,0,0.05)] transition hover:shadow-[0_6px_20px_rgba(0,0,0,0.09)]"
                   >
-                    {/* Card header */}
                     <div className="flex items-start gap-3">
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#1a2332] border border-[#2a3342]">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#DDD8D0] bg-[#1a2332]">
                         <span className="text-[11px] font-black text-white">{freelancerInitials}</span>
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#999]">
-                          {contract.freelancer}
-                        </p>
-                        <h3 className="mt-0.5 text-[15px] font-black text-[#1a1a1a] leading-tight truncate">
+                        <h3 className="text-[15px] font-black leading-tight text-[#1a1a1a] truncate">
                           {contract.title}
                         </h3>
+                        <p className="mt-1 truncate text-[11px] text-[#777]">
+                          Freelancer: <span className="font-semibold text-[#555]">{contract.freelancer}</span>
+                        </p>
                       </div>
-                      <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${statusColor}`}>
+                      <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ${statusColor}`}>
                         {statusLabel}
                       </span>
                     </div>
 
-                    {/* Contract value */}
-                    <div className="mt-4 flex items-center justify-between rounded-[10px] bg-[#F5F3EF] px-3 py-2.5">
-                      <span className="text-[12px] text-[#888]">Contract Value</span>
-                      <span className="text-[13px] font-black text-[#F7931A]">{amountLabel}</span>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-[#6b6762]">
+                      <span>Due: <strong className="text-[#F7931A]">{contract.dueDate}</strong></span>
+                      <span>Budget: <strong className="text-[#1a1a1a]">{amountLabel}</strong></span>
                     </div>
 
-                    {/* Next milestone */}
-                    {contract.nextMilestone && contract.nextMilestone !== "-" && (
-                      <div className="mt-3 flex items-center gap-2 text-[12px] text-[#555]">
-                        <Calendar size={13} className="flex-shrink-0 text-[#999]" />
-                        <span>Next: <strong>{contract.nextMilestone}</strong></span>
-                        {contract.dueDate && contract.dueDate !== "-" && (
-                          <span className="ml-auto flex-shrink-0 font-bold text-[#F7931A]">{contract.dueDate}</span>
-                        )}
+                    <div className="mt-4">
+                      <p className="text-[11px] font-bold text-[#555]">Progress</p>
+                      <div className="mt-2 grid grid-cols-4">
+                        {steps.map((step, index) => {
+                          const number = index + 1;
+                          const isComplete = number < stepIndex;
+                          const isActive = number === stepIndex;
+                          const isReached = number <= stepIndex;
+                          return (
+                            <div key={step} className="relative flex flex-col items-center text-center">
+                              {index > 0 && (
+                                <span className={`absolute left-[-50%] right-[50%] top-[10px] h-[2px] ${number <= stepIndex ? "bg-[#F7931A]" : "bg-[#DDD8D0]"}`} />
+                              )}
+                              <span className={`relative z-10 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-black ${
+                                isReached ? "border-[#F7931A] bg-[#F7931A] text-white" : "border-[#BBB5AE] bg-white text-[#777]"
+                              }`}>
+                                {isComplete ? "✓" : number}
+                              </span>
+                              <span className={`mt-1.5 max-w-[72px] text-[10px] leading-tight ${isActive ? "font-black text-[#8C4F00]" : "font-semibold text-[#555]"}`}>
+                                {step}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
+                    </div>
 
-                    {/* View Details */}
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }}
-                      className="mt-4 w-full rounded-[10px] bg-gradient-to-r from-orange-600 to-orange-400 py-3 text-[12px] font-black uppercase tracking-[0.1em] text-white transition hover:opacity-90"
-                    >
-                      View Details
-                    </button>
+                    <div className="mt-4 flex items-start gap-2 rounded-[10px] bg-[#FFF4E6] px-3 py-2.5 text-[12px] text-[#6b3f00]">
+                      <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-[#F7931A] text-[10px] font-black text-[#F7931A]">i</span>
+                      <span>{infoText}</span>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }}
+                        className="rounded-[10px] border border-[#F7931A] bg-white py-3 text-[12px] font-black text-[#F7931A] transition hover:bg-[#FFF8EF]"
+                      >
+                        View Details
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!contract.jobId || !contract.freelancerId) return;
+                          const conversationId = createConversationId(contract.jobId, contract.freelancerId);
+                          router.push(`/client/dashboard/messages?chat=${conversationId}`);
+                        }}
+                        className="rounded-[10px] border border-[#F7931A] bg-[#F7931A] px-2 py-3 text-[11px] font-black leading-tight text-white transition hover:bg-[#E9850F] sm:text-[12px]"
+                      >
+                        Message Freelancer
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -2451,24 +2497,24 @@ export default function ClientContractsContent() {
 
       {/* ── CONTRACT DETAIL MODAL ── */}
       {isModalOpen && selectedContract && (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center px-2 py-2 sm:items-center sm:px-4 sm:py-4">
+        <div className="fixed inset-0 z-[80] flex items-end justify-center px-2 py-2 sm:items-center sm:px-5 sm:py-5">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
-          <div className="relative z-[81] max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[20px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <div className="relative z-[81] max-h-[92vh] w-full overflow-y-auto rounded-[20px] border border-[#EAE7E2] bg-[#FFFCF8] shadow-[0_24px_70px_rgba(26,26,26,0.24)] md:max-w-3xl lg:max-w-5xl">
 
             {/* Modal Header */}
-            <div className="px-5 pt-5 pb-4 border-b border-[#F0EDE8]">
+            <div className="border-b border-[#F0EDE8] bg-white px-5 pb-4 pt-5 sm:px-6 lg:px-7">
               <button type="button" onClick={() => setIsModalOpen(false)} aria-label="Close" className="absolute right-4 top-4 text-[#999] hover:text-[#1a1a1a] transition-colors text-[18px] font-light">✕</button>
               <div className="flex items-center gap-2 mb-2">
                 {(() => {
-                  const statusLabel = isFinishedContract(selectedContract) ? "Finished" : isEscrowContract(selectedContract) ? "Ongoing" : "Active";
-                  const statusColor = statusLabel === "Finished" ? "bg-[#E6F4EA] text-[#2E7D32]" : statusLabel === "Ongoing" ? "bg-[#EFF6FF] text-[#1D4ED8]" : "bg-[#FFF4E6] text-[#8C4F00]";
+                  const statusLabel = isFinishedContract(selectedContract) ? "Finished" : isEscrowContract(selectedContract) ? "In Progress" : "Active";
+                  const statusColor = statusLabel === "Finished" ? "bg-[#E6F4EA] text-[#2E7D32]" : statusLabel === "In Progress" ? "bg-[#E6F4EA] text-[#2E7D32]" : "bg-[#FFF4E6] text-[#8C4F00]";
                   return <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] ${statusColor}`}>{statusLabel}</span>;
                 })()}
                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#999]">
                   CONTRACT #{selectedContract.id.slice(-6).toUpperCase()}
                 </span>
               </div>
-              <h2 className="text-[22px] font-black text-[#1a1a1a] leading-tight">{selectedContract.title}</h2>
+              <h2 className="max-w-[760px] text-[22px] font-black leading-tight text-[#1a1a1a] sm:text-[24px]">{selectedContract.title}</h2>
               <div className="flex items-center gap-2 mt-1.5">
                 <div className="h-6 w-6 rounded-full bg-[#1a2332] flex items-center justify-center overflow-hidden flex-shrink-0">
                   <span className="text-[8px] font-black text-white">{getInitials(selectedContract.freelancer ?? "F")}</span>
@@ -2478,8 +2524,8 @@ export default function ClientContractsContent() {
             </div>
 
             {/* Value + Escrow */}
-            <div className="px-5 py-4 grid grid-cols-2 gap-3 border-b border-[#F0EDE8]">
-              <div className="rounded-[12px] bg-[#F5F3EF] px-4 py-3">
+            <div className="grid grid-cols-1 gap-3 border-b border-[#F0EDE8] px-5 py-4 sm:grid-cols-2 sm:px-6 lg:px-7">
+              <div className="rounded-[12px] border border-[#EFECE7] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
                 <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Total Contract Value</p>
                 <p className="text-[16px] font-black text-[#F7931A]">
                   {(() => {
@@ -2488,7 +2534,7 @@ export default function ClientContractsContent() {
                   })()}
                 </p>
               </div>
-              <div className="rounded-[12px] bg-[#F5F3EF] px-4 py-3">
+              <div className="rounded-[12px] border border-[#EFECE7] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
                 <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Escrow Status</p>
                 <div className="flex items-center gap-1.5">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={selectedContract.paymentStatus === "funded" || selectedContract.paymentStatus === "released" ? "#1D4ED8" : "#999"} strokeWidth="2">
@@ -2505,9 +2551,9 @@ export default function ClientContractsContent() {
             </div>
 
             {/* Contract Overview */}
-            <div className="px-5 py-4 border-b border-[#F0EDE8]">
+            <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
               <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#8C4F00] mb-3">Contract Overview</p>
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
+              <div className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-3">
                 {[
                   { label: "Contract Type", value: selectedContract.contractType ?? "Fixed Price" },
                   { label: "Work Status", value: selectedContract.workStatus?.replace(/_/g, " ") ?? "Not started" },
@@ -2516,7 +2562,7 @@ export default function ClientContractsContent() {
                   { label: "Progress", value: `${selectedContract.progress}%` },
                   { label: "Next Milestone", value: selectedContract.nextMilestone },
                 ].map(({ label, value }) => (
-                  <div key={label} className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                  <div key={label} className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2 shadow-[0_4px_14px_rgba(0,0,0,0.025)]">
                     <div className="text-[9px] font-black uppercase tracking-[0.1em] text-[#999]">{label}</div>
                     <div className="mt-0.5 font-semibold text-[#1a1a1a] capitalize truncate">{value}</div>
                   </div>
@@ -2526,7 +2572,7 @@ export default function ClientContractsContent() {
 
             {/* Description */}
             {selectedContract.description && selectedContract.description !== "-" && (
-              <div className="px-5 py-4 border-b border-[#F0EDE8]">
+              <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
                 <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#8C4F00] mb-2">Description</p>
                 <p className="text-[12px] text-[#6b6762] leading-[1.7]">{selectedContract.description}</p>
               </div>
@@ -2534,7 +2580,7 @@ export default function ClientContractsContent() {
 
             {/* Scope of Work */}
             {selectedContract.scopeItems && selectedContract.scopeItems.length > 0 && (
-              <div className="px-5 py-4 border-b border-[#F0EDE8]">
+              <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
                 <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#8C4F00] mb-3">Scope of Work</p>
                 <ul className="space-y-1.5">
                   {selectedContract.scopeItems.map((item) => (
@@ -2549,7 +2595,7 @@ export default function ClientContractsContent() {
 
             {/* Milestones timeline */}
             {selectedContract.milestones && selectedContract.milestones.length > 0 && (
-              <div className="px-5 py-4 border-b border-[#F0EDE8]">
+              <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
                 <h3 className="text-[9px] font-black uppercase tracking-[0.14em] text-[#8C4F00] mb-3">Milestones</h3>
                 <div className="relative">
                   <div className="absolute left-[7px] top-2 bottom-2 w-[2px] bg-[#EAE7E2]" />
@@ -2583,7 +2629,7 @@ export default function ClientContractsContent() {
             )}
 
             {/* Payment Details */}
-            <div className="px-5 py-4 border-b border-[#F0EDE8]">
+            <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
               <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#8C4F00] mb-3">Payment Details</p>
               {(() => {
                 const jobAmount = selectedContract.paymentTotalAmountSats || parseSats(selectedContract.budget) || 0;
@@ -2593,7 +2639,7 @@ export default function ClientContractsContent() {
                 const funded = selectedContract.escrowFundedTotalSats ?? 0;
                 const remainingFunded = Math.max(0, funded - platformFee - released);
                 return (
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <div className="grid grid-cols-1 gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-3">
                     {[
                       { label: "Total Value", value: `${jobAmount.toLocaleString()} sats` },
                       { label: "Client Pays (w/ Fee)", value: `${clientTotal.toLocaleString()} sats` },
@@ -2602,7 +2648,7 @@ export default function ClientContractsContent() {
                       { label: "Platform Fee (5%)", value: `${platformFee.toLocaleString()} sats` },
                       { label: "Released", value: `${released.toLocaleString()} sats` },
                     ].map(({ label, value }) => (
-                      <div key={label} className="rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] px-3 py-2">
+                      <div key={label} className="rounded-[10px] border border-[#EFECE7] bg-white px-3 py-2 shadow-[0_4px_14px_rgba(0,0,0,0.025)]">
                         <div className="text-[9px] font-black uppercase tracking-[0.1em] text-[#999]">{label}</div>
                         <div className="mt-0.5 font-semibold text-[#1a1a1a]">{value}</div>
                       </div>
@@ -2617,7 +2663,7 @@ export default function ClientContractsContent() {
 
             {/* Related Submissions */}
             {submittedJobs.filter((j) => j.contractId === selectedContract.id).length > 0 && (
-              <div className="px-5 py-4 border-b border-[#F0EDE8]">
+              <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
                 <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#8C4F00] mb-3">Related Submissions</p>
                 <div className="space-y-2">
                   {submittedJobs.filter((j) => j.contractId === selectedContract.id).map((job) => (
@@ -2640,7 +2686,7 @@ export default function ClientContractsContent() {
             )}
 
             {/* Footer */}
-            <div className="px-5 pb-5 pt-4 flex items-center gap-3">
+            <div className="flex items-center gap-3 bg-white px-5 pb-5 pt-4 sm:px-6 lg:px-7">
               <button
                 type="button"
                 onClick={async () => {
@@ -2648,7 +2694,7 @@ export default function ClientContractsContent() {
                   const conversationId = createConversationId(selectedContract.jobId, selectedContract.freelancerId);
                   router.push(`/client/dashboard/messages?chat=${conversationId}`);
                 }}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-[10px] bg-[#1a2332] py-3 text-[12px] font-black uppercase tracking-[0.08em] text-white transition hover:bg-[#0f1a26]"
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-[10px] border border-[#F7931A] bg-[#F7931A] py-3 text-[12px] font-black uppercase tracking-[0.08em] text-white transition hover:bg-[#E9850F]"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 Message Freelancer

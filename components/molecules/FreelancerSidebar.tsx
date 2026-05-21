@@ -123,16 +123,17 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard' }: 
 
         const freelancerName = `${freelancerData?.firstName ?? ''} ${freelancerData?.lastName ?? ''}`.trim();
         const allUsersName = `${allUsersData?.firstName ?? ''} ${allUsersData?.lastName ?? ''}`.trim();
+        const allUsersFullName = allUsersData?.fullName || allUsersData?.name || allUsersName;
+        const freelancerFullName = freelancerData?.fullName || freelancerName;
+
         const fullName =
-          freelancerData?.fullName ||
-          freelancerName ||
-          allUsersData?.fullName ||
-          allUsersName ||
+          allUsersFullName ||
+          freelancerFullName ||
           user.displayName ||
           'Freelancer';
         const nextAvatarUrl = freelancerData?.avatarUrl ?? allUsersData?.avatarUrl ?? null;
 
-        setDisplayName(fullName);
+        setDisplayName(fullName.trim());
         setAvatarUrl(nextAvatarUrl);
         setAvatarLoadFailed(false);
       } catch {

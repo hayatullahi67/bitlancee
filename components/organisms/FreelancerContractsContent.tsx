@@ -697,13 +697,13 @@ export default function FreelancerContractsContent() {
                 const statusLabel = isFinishedContract(contract)
                   ? "Finished"
                   : isEscrowContract(contract)
-                    ? "Ongoing"
+                    ? "In Progress"
                     : "Active";
                 const statusColor =
                   statusLabel === "Finished"
                     ? "bg-[#E6F4EA] text-[#2E7D32]"
-                    : statusLabel === "Ongoing"
-                      ? "bg-[#EFF6FF] text-[#1D4ED8]"
+                    : statusLabel === "In Progress"
+                      ? "bg-[#E6F4EA] text-[#2E7D32]"
                       : "bg-[#FFF4E6] text-[#8C4F00]";
 
                 const amountSats = contract.paymentTotalAmountSats ?? 0;
@@ -717,16 +717,29 @@ export default function FreelancerContractsContent() {
                   .slice(0, 2)
                   .map((p: string) => p[0]?.toUpperCase())
                   .join("");
+                const stepIndex = isFinishedContract(contract)
+                  ? 4
+                  : contract.workStatus === "submitted"
+                    ? 3
+                    : isEscrowContract(contract) || contract.workStatus === "in_progress"
+                      ? 2
+                      : 1;
+                const steps = ["Contract Accepted", "Work in Progress", "Submitted", "Approved"];
+                const infoText = isFinishedContract(contract)
+                  ? "Contract approved. Payment has been released."
+                  : contract.workStatus === "submitted"
+                    ? "Work submitted. Waiting for client review."
+                    : contract.workStatus === "changes_requested"
+                      ? "Changes requested. Review the client's note and resubmit your work."
+                      : "Work in progress. Upload your deliverable when ready.";
 
                 return (
                   <div
                     key={contract.id}
                     className="flex flex-col rounded-[14px] border border-[#EAE7E2] bg-white p-4 shadow-[0_4px_16px_rgba(0,0,0,0.05)] transition hover:shadow-[0_6px_20px_rgba(0,0,0,0.09)]"
                   >
-                    {/* Card header */}
                     <div className="flex items-start gap-3">
-                      {/* Client avatar */}
-                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#E8E2D9] border border-[#DDD8D0]">
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border border-[#DDD8D0] bg-[#E8E2D9]">
                         {(contract as any).clientAvatarUrl ? (
                           <img src={(contract as any).clientAvatarUrl} alt={contract.clientName} className="h-full w-full object-cover" />
                         ) : (
@@ -735,45 +748,72 @@ export default function FreelancerContractsContent() {
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#999]">
-                          {contract.clientName}
-                        </p>
-                        <h3 className="mt-0.5 text-[15px] font-black text-[#1a1a1a] leading-tight truncate">
+                        <h3 className="text-[15px] font-black leading-tight text-[#1a1a1a] truncate">
                           {contract.title}
                         </h3>
+                        <p className="mt-1 truncate text-[11px] text-[#777]">
+                          Client: <span className="font-semibold text-[#555]">{contract.clientName}</span>
+                        </p>
                       </div>
 
-                      {/* Status badge */}
-                      <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${statusColor}`}>
+                      <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-[10px] font-black ${statusColor}`}>
                         {statusLabel}
                       </span>
                     </div>
 
-                    {/* Contract value */}
-                    <div className="mt-4 flex items-center justify-between rounded-[10px] bg-[#F5F3EF] px-3 py-2.5">
-                      <span className="text-[12px] text-[#888]">Contract Value</span>
-                      <span className="text-[13px] font-black text-[]">{amountLabel}</span>
+                    <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px] text-[#6b6762]">
+                      <span>Due: <strong className="text-[#F7931A]">{contract.dueDate}</strong></span>
+                      <span>Budget: <strong className="text-[#1a1a1a]">{amountLabel}</strong></span>
                     </div>
 
-                    {/* Next milestone */}
-                    {contract.nextMilestone && contract.nextMilestone !== "-" && (
-                      <div className="mt-3 flex items-center gap-2 text-[12px] text-[#555]">
-                        <Calendar size={13} className="flex-shrink-0 text-[#999]" />
-                        <span>Next Milestone: <strong>{contract.nextMilestone}</strong></span>
-                        {contract.dueDate && contract.dueDate !== "-" && (
-                          <span className="ml-auto flex-shrink-0 font-bold text-[#F7931A]">{contract.dueDate}</span>
-                        )}
+                    <div className="mt-4">
+                      <p className="text-[11px] font-bold text-[#555]">Progress</p>
+                      <div className="mt-2 grid grid-cols-4">
+                        {steps.map((step, index) => {
+                          const number = index + 1;
+                          const isComplete = number < stepIndex;
+                          const isActive = number === stepIndex;
+                          const isReached = number <= stepIndex;
+                          return (
+                            <div key={step} className="relative flex flex-col items-center text-center">
+                              {index > 0 && (
+                                <span className={`absolute left-[-50%] right-[50%] top-[10px] h-[2px] ${number <= stepIndex ? "bg-[#F7931A]" : "bg-[#DDD8D0]"}`} />
+                              )}
+                              <span className={`relative z-10 flex h-5 w-5 items-center justify-center rounded-full border text-[10px] font-black ${
+                                isReached ? "border-[#F7931A] bg-[#F7931A] text-white" : "border-[#BBB5AE] bg-white text-[#777]"
+                              }`}>
+                                {isComplete ? "✓" : number}
+                              </span>
+                              <span className={`mt-1.5 max-w-[72px] text-[10px] leading-tight ${isActive ? "font-black text-[#8C4F00]" : "font-semibold text-[#555]"}`}>
+                                {step}
+                              </span>
+                            </div>
+                          );
+                        })}
                       </div>
-                    )}
+                    </div>
 
-                    {/* View Details button */}
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }}
-                      className="mt-4 w-full rounded-[10px] bg-gradient-to-r from-orange-600 to-orange-400 py-3 text-[12px] font-black uppercase tracking-[0.1em] text-white transition hover:bg-[#0f1a26]"
-                    >
-                      View Details
-                    </button>
+                    <div className="mt-4 flex items-start gap-2 rounded-[10px] bg-[#FFF4E6] px-3 py-2.5 text-[12px] text-[#6b3f00]">
+                      <span className="mt-0.5 flex h-4 w-4 flex-shrink-0 items-center justify-center rounded-full border border-[#F7931A] text-[10px] font-black text-[#F7931A]">i</span>
+                      <span>{infoText}</span>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }}
+                        className="rounded-[10px] border border-[#F7931A] bg-white py-3 text-[12px] font-black text-[#F7931A] transition hover:bg-[#FFF8EF]"
+                      >
+                        View Contract
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }}
+                        className="rounded-[10px] bg-gradient-to-r from-orange-600 to-orange-400 py-3 text-[12px] font-black text-white transition hover:opacity-90"
+                      >
+                        Upload Deliverable
+                      </button>
+                    </div>
                   </div>
                 );
               })}
@@ -932,7 +972,7 @@ export default function FreelancerContractsContent() {
 
             {/* Client note if rejected */}
             {selectedSubmission.status === "rejected" && (
-              <div className="px-5 py-4 border-b border-[#F0EDE8]">
+              <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
                 <div className="rounded-[12px] border border-[#FCA5A5] bg-[#FFF5F5] px-4 py-3">
                   <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#B91C1C] mb-2">Client Requested Adjustments</p>
                   <p className="text-[13px] text-[#7F1D1D] leading-[1.6]">
@@ -1100,12 +1140,12 @@ export default function FreelancerContractsContent() {
       )}
 
       {isModalOpen && selectedContract ? (
-        <div className="fixed inset-0 z-[80] flex items-end justify-center px-2 py-2 sm:items-center sm:px-4 sm:py-4">
+        <div className="fixed inset-0 z-[80] flex items-end justify-center px-2 py-2 sm:items-center sm:px-5 sm:py-5">
           <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setIsModalOpen(false)} />
-          <div className="relative z-[81] max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-[20px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <div className="relative z-[81] max-h-[92vh] w-full overflow-y-auto rounded-[20px] border border-[#EAE7E2] bg-[#FFFCF8] shadow-[0_24px_70px_rgba(26,26,26,0.24)] md:max-w-3xl lg:max-w-5xl">
 
             {/* ── Modal Header ── */}
-            <div className="px-5 pt-5 pb-4 border-b border-[#F0EDE8]">
+            <div className="border-b border-[#F0EDE8] bg-white px-5 pb-4 pt-5 sm:px-6 lg:px-7">
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
@@ -1118,8 +1158,8 @@ export default function FreelancerContractsContent() {
               {/* Status + contract ID */}
               <div className="flex items-center gap-2 mb-2">
                 {(() => {
-                  const statusLabel = isFinishedContract(selectedContract) ? "Finished" : isEscrowContract(selectedContract) ? "Ongoing" : "Active";
-                  const statusColor = statusLabel === "Finished" ? "bg-[#E6F4EA] text-[#2E7D32]" : statusLabel === "Ongoing" ? "bg-[#EFF6FF] text-[#1D4ED8]" : "bg-[#FFF4E6] text-[#8C4F00]";
+                  const statusLabel = isFinishedContract(selectedContract) ? "Finished" : isEscrowContract(selectedContract) ? "In Progress" : "Active";
+                  const statusColor = statusLabel === "Finished" ? "bg-[#E6F4EA] text-[#2E7D32]" : statusLabel === "In Progress" ? "bg-[#E6F4EA] text-[#2E7D32]" : "bg-[#FFF4E6] text-[#8C4F00]";
                   return <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-[0.08em] ${statusColor}`}>{statusLabel}</span>;
                 })()}
                 <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#999]">
@@ -1128,7 +1168,7 @@ export default function FreelancerContractsContent() {
               </div>
 
               {/* Title */}
-              <h2 className="text-[22px] font-black text-[#1a1a1a] leading-tight">{selectedContract.title}</h2>
+              <h2 className="max-w-[760px] text-[22px] font-black leading-tight text-[#1a1a1a] sm:text-[24px]">{selectedContract.title}</h2>
 
               {/* Client */}
               <div className="flex items-center gap-2 mt-1.5">
@@ -1146,8 +1186,8 @@ export default function FreelancerContractsContent() {
             </div>
 
             {/* ── Value + Escrow Status ── */}
-            <div className="px-5 py-4 grid grid-cols-2 gap-3 border-b border-[#F0EDE8]">
-              <div className="rounded-[12px] bg-[#F5F3EF] px-4 py-3">
+            <div className="grid grid-cols-1 gap-3 border-b border-[#F0EDE8] px-5 py-4 sm:grid-cols-2 sm:px-6 lg:px-7">
+              <div className="rounded-[12px] border border-[#EFECE7] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
                 <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Total Contract Value</p>
                 <p className="text-[16px] font-black text-[#F7931A]">
                   {(() => {
@@ -1156,7 +1196,7 @@ export default function FreelancerContractsContent() {
                   })()}
                 </p>
               </div>
-              <div className="rounded-[12px] bg-[#F5F3EF] px-4 py-3">
+              <div className="rounded-[12px] border border-[#EFECE7] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
                 <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Escrow Status</p>
                 <div className="flex items-center gap-1.5">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={selectedContract.paymentStatus === "funded" || selectedContract.paymentStatus === "released" ? "#1D4ED8" : "#999"} strokeWidth="2">
@@ -1210,10 +1250,10 @@ export default function FreelancerContractsContent() {
             )}
 
             {/* ── Contract Terms ── */}
-            <div className="px-5 py-4 border-b border-[#F0EDE8]">
-              <div className="rounded-[12px] border border-[#EAE7E2] bg-[#F5F3EF] px-4 py-3">
+            <div className="border-b border-[#F0EDE8] px-5 py-4 sm:px-6 lg:px-7">
+              <div className="rounded-[12px] border border-[#EAE7E2] bg-white px-4 py-3 shadow-[0_6px_18px_rgba(0,0,0,0.03)]">
                 <h3 className="text-[13px] font-black text-[#1a1a1a] mb-3">Contract Terms</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <div className="flex items-start gap-2">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="1.5" className="mt-0.5 flex-shrink-0"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     <div>
@@ -1233,7 +1273,7 @@ export default function FreelancerContractsContent() {
             </div>
 
             {/* ── Submit Work Section (all existing logic preserved) ── */}
-            <div className="px-5 py-4">
+            <div className="px-5 py-4 sm:px-6 lg:px-7">
               {(() => {
                 const isFinished =
                   selectedContract.workStatus === "approved" ||
@@ -1326,7 +1366,7 @@ export default function FreelancerContractsContent() {
             </div>
 
             {/* ── Footer Actions ── */}
-            <div className="px-5 pb-5 pt-2 border-t border-[#F0EDE8] flex items-center gap-3">
+            <div className="flex items-center gap-3 border-t border-[#F0EDE8] bg-white px-5 pb-5 pt-3 sm:px-6 lg:px-7">
               {/* Submit Work / Message Client buttons */}
               {/* <Button
                 size="sm"
@@ -1342,7 +1382,7 @@ export default function FreelancerContractsContent() {
               <Button
                 size="sm"
                 variant="outline"
-                className="flex-1 rounded-[10px] bg-[#1a2332] text-white border-[#1a2332] ] font-black py-3"
+                className="flex-1 rounded-[10px] border-[#1a2332] bg-[#1a2332] py-3 font-black text-white"
                 onClick={async () => {
                   if (!selectedContract?.jobId || !selectedContract?.freelancerId) return;
                   const clientId = selectedContract.clientId ?? "";
