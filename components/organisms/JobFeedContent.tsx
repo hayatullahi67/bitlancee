@@ -298,7 +298,7 @@ export default function JobFeedContent() {
               <div className="p-2 bg-[#F7931A]/10 rounded-xl">
                 <Zap className="w-6 h-6 text-[#F7931A]" />
               </div>
-              <h1 className="text-3xl font-extrabold text-[#1a1a1a] tracking-tight">Job Feed</h1>
+              <h1 className="text-3xl   md:font-extrabold text-[#1a1a1a] tracking-tight">Job Feed</h1>
             </div>
             <p className="text-[#6b6560] text-sm md:text-base font-medium">
               Browse and apply to the best Bitcoin-native opportunities.

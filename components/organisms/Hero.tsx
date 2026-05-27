@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 
 const satsValues = ["+120,000 Sats", "+45,500 Sats", "+300,000 Sats", "+88,200 Sats"];
 
 export default function Hero() {
+  const router = useRouter();
   const [payIndex, setPayIndex] = useState(0);
   const [visible, setVisible] = useState(true);
 
@@ -43,11 +45,17 @@ export default function Hero() {
             </p>
 
             <div className="mt-6 flex flex-row flex-wrap items-center justify-start gap-2 sm:gap-3">
-              <button className="font-inter inline-flex items-center justify-center gap-2 bg-[#F7931A] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-3 sm:py-3 border-none cursor-pointer transition-all duration-200 hover:-translate-y-px shadow-sm min-w-[130px]">
+              <button
+                onClick={() => router.push('/login')}
+                className="font-inter inline-flex items-center justify-center gap-2 bg-[#F7931A] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-3 sm:py-3 border-none cursor-pointer transition-all duration-200 hover:-translate-y-px shadow-sm min-w-[130px]"
+              >
                 Find Work &nbsp;→
               </button>
 
-              <button className="font-inter inline-flex items-center justify-center bg-[#E5E2E0] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-3 sm:py-3 border border-[#ddd] hover:border-[#bbb] cursor-pointer transition-all duration-200 hover:-translate-y-px min-w-[130px]">
+              <button
+                onClick={() => router.push('/login')}
+                className="font-inter inline-flex items-center justify-center bg-[#E5E2E0] text-[#1a1a1a] text-xs sm:text-sm font-bold rounded-full px-3 sm:px-5 py-3 sm:py-3 border border-[#ddd] hover:border-[#bbb] cursor-pointer transition-all duration-200 hover:-translate-y-px min-w-[130px]"
+              >
                 Post a Job
               </button>
             </div>

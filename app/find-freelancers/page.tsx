@@ -11,12 +11,38 @@ type FreelancerCardItem = {
   id: string;
   icon?: string;
   title: string;
+  fullName: string;
   description: string;
   price: string;
   tags: string[];
   skills: string[];
   profileHref: string;
+  avatarUrl: string;
 };
+
+// ── LogoBox (Avatar) ─────────────────────────────────────────────────────────
+function LogoBox({ url, name }: { url?: string; name?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [url]);
+  const showImg = !!url && !failed;
+  return (
+    <div className="h-11 w-11 min-w-[44px] rounded-[8px] bg-[#F7F4F0] ring-1 ring-[#EAE7E2] overflow-hidden flex items-center justify-center flex-shrink-0">
+      {showImg ? (
+        <img
+          src={url}
+          alt={name ? `${name} avatar` : 'Freelancer avatar'}
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8C4F00" strokeWidth="2" aria-hidden="true">
+          <path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5z" />
+          <path d="M4 21c0-3.314 2.686-6 6-6h4c3.314 0 6 2.686 6 6" />
+        </svg>
+      )}
+    </div>
+  );
+}
 
 const CATEGORY_ICONS: Record<string, string> = {
   lightning: '/assets/dev.png',
@@ -111,11 +137,13 @@ export default function FindFreelancers() {
               id: uid,
               icon: getFreelancerIcon(skills),
               title: freeData.title?.trim() || fullName || 'Freelancer',
+              fullName,
               description: freeData.bio?.trim() || 'Professional freelancer available for Bitcoin-native work.',
               price: formatHourlyRate(freeData.hourlyRate ?? '0', freeData.currency ?? 'SATS'),
               tags: skills.slice(0, 3),
               skills,
               profileHref: `/freelancer/public/${uid}`,
+              avatarUrl: freeData.avatarUrl ?? allData.avatarUrl ?? '',
             } satisfies FreelancerCardItem;
           })
         );
@@ -278,21 +306,90 @@ export default function FindFreelancers() {
                   </div>
                 ) : filteredFreelancers.length ? (
                   filteredFreelancers.map((freelancer) => (
-                    <JobCard
+                    <div
                       key={freelancer.id}
-                      icon={freelancer.icon}
-                      title={freelancer.title}
-                      description={freelancer.description}
-                      price={freelancer.price}
-                      tags={freelancer.tags}
-                      variant="findwork"
-                      isFreelancer={true}
-                      profileHref={freelancer.profileHref}
-                      titleClassName="text-[#1B1C1B] text-[16px] sm:text-[19px] font-bold text-[#333]"
-                      descriptionClassName="text-sm sm:text-base text-[#666]"
-                      priceClassName="text-[#8C4F00] !text-[12px] sm:!text-[15px]"
-                      tagsClassName="bg-[#E0E0E0] text-[#222] text-[8px] sm:text-[10px]"
-                    />
+                      className="bg-white rounded-3xl border border-[#ece7df] p-4 shadow-sm transition-all hover:shadow-xl hover:border-[#F7931A]/30 group overflow-hidden"
+                    >
+                      <div className="flex gap-5">
+                        {/* Freelancer Avatar */}
+                        <LogoBox url={freelancer.avatarUrl} name={freelancer.fullName} />
+
+                        {/* Content */}
+                        <div className="flex-1 min-w-0">
+                          {/* Top row: Status/Placeholder */}
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-[#6b6560] font-medium">Available now</span>
+                            </div>
+                          </div>
+
+                          {/* Title + Rate */}
+                          <div className="flex items-start justify-between gap-4 mb-1.5">
+                            <h3 className="text-lg font-bold text-[#1a1a1a] transition-colors flex-1 break-words min-w-0">
+                              {freelancer.title}
+                            </h3>
+                            {freelancer.price && (
+                              <span className="text-[15px] font-bold text-[#8C4F00] whitespace-nowrap shrink-0">
+                                {freelancer.price}
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Name + Experience placeholder */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <svg className="w-4 h-4 text-[#6b6560] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                              <circle cx="12" cy="7" r="4" />
+                            </svg>
+                            <span className="text-sm font-medium text-[#6b6560] truncate">{freelancer.fullName}</span>
+                            <span className="text-xs text-[#6b6560]">•</span>
+                            <span className="text-xs text-[#6b6560] whitespace-nowrap">Verified Professional</span>
+                          </div>
+
+                          {/* Bio — 1 line clamp */}
+                          {freelancer.description && (
+                            <p
+                              className="text-sm text-[#6b6560] leading-relaxed mb-2 overflow-hidden break-all"
+                              style={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 1,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden',
+                              }}
+                            >
+                              {freelancer.description}
+                            </p>
+                          )}
+
+                          {/* Tags/Skills */}
+                          {freelancer.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mb-3">
+                              {freelancer.tags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="px-3 py-1 bg-[#FCF9F7] text-[#6b6560] text-[10px] font-bold rounded-full border border-[#ece7df] group-hover:bg-[#F7931A]/10 group-hover:text-[#F7931A] group-hover:border-[#F7931A]/30 transition-colors"
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Profile button */}
+                          <div className="flex justify-end">
+                            <button
+                              onClick={() => window.location.href = freelancer.profileHref}
+                              className="flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 to-orange-400 text-white px-6 py-3 rounded-2xl font-bold text-sm transition-all shadow-lg active:scale-95 group/btn"
+                            >
+                              View Profile
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="group-hover/btn:translate-x-0.5 group-hover/btn:-translate-y-0.5 transition-transform">
+                                <path d="M7 17L17 7M17 7H7M17 7v10" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   ))
                 ) : (
                   <div className="rounded-2xl border border-[#ece7dd] bg-white p-8 text-center text-[#777]">

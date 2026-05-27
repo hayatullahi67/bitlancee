@@ -1,28 +1,66 @@
+"use client";
+
+import { useState } from "react";
 import Button from "@/components/atoms/Button";
+import AISupportChat from "@/components/organisms/AISupportChat";
 
 const TOPICS = [
-  { title: "Hiring Workflow", desc: "Create job posts, shortlist, and onboard talent." },
-  { title: "Payments & Escrow", desc: "Secure milestones and release payouts with confidence." },
-  { title: "Contracts", desc: "Manage deliverables and approve milestones." },
-  { title: "Security", desc: "Protect your organization with best practices." },
+  { title: "Overview", desc: "See active contracts, open job posts, total spend, and recent activity." },
+  { title: "Job Posts", desc: "Create roles, upload a company logo, and edit job details." },
+  { title: "Proposals", desc: "Review freelancers by job, view job context, then accept, reject, or message." },
+  { title: "Contracts", desc: "Track active work, submitted milestones, approvals, and change requests." },
 ];
 
 const FAQS = [
   {
-    q: "How do I move a freelancer to contract?",
-    a: "Open the job post, review candidates, and click “Offer Contract” for the chosen freelancer.",
+    q: "What does the Overview page show?",
+    a: "It gives you a quick snapshot of active contracts, open job posts, total spend, latest jobs, and recent contracts.",
   },
   {
-    q: "Can I change a milestone after it’s created?",
-    a: "Yes. Edit milestones from the contract overview before the freelancer starts work.",
+    q: "How do I post or edit a job?",
+    a: "Go to Job Posts, click Post New Job, add the title, category, budget, duration, logo, description, and skills. Existing jobs can be opened and edited from the same page.",
   },
   {
-    q: "Where do I see all invoices?",
-    a: "All invoices live in the Payments tab with status, amount, and release history.",
+    q: "Where do proposals live?",
+    a: "Use the Proposals page to review all proposals across jobs, or open a job from Job Posts to see proposals for that specific role.",
+  },
+  {
+    q: "How do contracts and submitted work work?",
+    a: "The Contracts page shows active, ongoing, and finished contracts. Submitted work appears there for approval or change requests.",
+  },
+  {
+    q: "How do escrow payments work?",
+    a: "Open a conversation in Messages, create a Lightning invoice for full escrow or a milestone, then verify payment after funding. Payments appear in the Payments tab.",
+  },
+  {
+    q: "Where do I update company information?",
+    a: "Use Profile for public company and contact details. Use Settings for billing email, timezone, notifications, privacy, and password reset.",
   },
 ];
 
+const WORKFLOW = [
+  "Start on Overview to check hiring status and recent activity.",
+  "Create or manage roles from Job Posts.",
+  "Review proposals, view the related job, then accept, reject, or message the freelancer.",
+  "Use Messages to coordinate, share files, and fund escrow.",
+  "Track delivery in Contracts, then approve work or request changes.",
+  "Review invoices and funded milestones in Payments.",
+];
+
 export default function ClientHelpContent() {
+  const [isAiActive, setIsAiActive] = useState(false);
+
+  if (isAiActive) {
+    return (
+      <AISupportChat
+        open={isAiActive}
+        onOpenChange={setIsAiActive}
+        fullPage
+        className="w-full"
+      />
+    );
+  }
+
   return (
     <section className="w-full">
       <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-6 shadow-[0_8px_22px_rgba(0,0,0,0.05)]">
@@ -30,10 +68,10 @@ export default function ClientHelpContent() {
           Help Center
         </div>
         <h1 className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[#1a1a1a]">
-          Support for client teams
+          How the client dashboard works
         </h1>
         <p className="mt-2 text-[12px] leading-[1.7] text-[#6b6762]">
-          Find answers quickly or reach out to the Bitlance client success crew.
+          Use this page as a quick guide to hiring, messaging, escrow, contracts, and account setup.
         </p>
       </div>
 
@@ -54,7 +92,7 @@ export default function ClientHelpContent() {
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[2fr_1fr]">
         <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-5">
           <div className="mb-4 text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
-            Frequently Asked
+            Dashboard Guide
           </div>
           <div className="flex flex-col gap-3">
             {FAQS.map((faq) => (
@@ -65,20 +103,35 @@ export default function ClientHelpContent() {
             ))}
           </div>
         </div>
-        <div className="rounded-[12px] border border-[#EAE7E2] bg-gradient-to-br from-[#1a1a1a] to-[#2d2d2d] p-5 text-white">
+
+        <div className="rounded-[12px] border border-[#EAE7E2] bg-white p-5">
           <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
-            Need a human?
+            Typical Workflow
           </div>
-          <p className="mt-3 text-[13px] leading-[1.7] text-[#d9d3cc]">
-            Our client success team responds within two business hours for priority contracts.
-          </p>
-          <div className="mt-4 flex flex-col gap-2">
-            <Button size="sm" className="rounded-full">
-              Start Live Chat
-            </Button>
-            <Button size="sm" variant="outline" className="rounded-full text-white border-white/30 hover:text-white">
-              Email Support
-            </Button>
+          <div className="mt-4 flex flex-col gap-3">
+            {WORKFLOW.map((step, index) => (
+              <div key={step} className="flex gap-3 rounded-[10px] border border-[#EFECE7] bg-[#FAF8F5] p-3">
+                <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#1a1a1a] text-[11px] font-semibold text-white">
+                  {index + 1}
+                </div>
+                <div className="text-[12px] leading-[1.6] text-[#6b6762]">{step}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-5 rounded-[10px] border border-[#EFECE7] bg-[#1a1a1a] p-4 text-white">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#F5A623]">
+              Need support?
+            </div>
+            <p className="mt-2 text-[12px] leading-[1.7] text-[#d9d3cc]">
+              Use live chat or email support when an invoice, milestone, or contract status needs help.
+            </p>
+            <div className="mt-4 flex flex-col gap-2">
+              <AISupportChat open={isAiActive} onOpenChange={setIsAiActive} />
+              <Button size="sm" className="rounded-full border-white/30 text-white hover:text-white">
+                Email Support
+              </Button>
+            </div>
           </div>
         </div>
       </div>

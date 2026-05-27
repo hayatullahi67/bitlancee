@@ -184,7 +184,7 @@ export default function FreelancerProposalsContent() {
             <div className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#8C4F00]">
               Proposals
             </div>
-            <h1 className="mt-2 text-[24px] font-semibold tracking-[-0.02em] text-[#1a1a1a]">
+            <h1 className="mt-2 text-[24px] md:font-semibold tracking-[-0.02em] text-[#1a1a1a]">
               Your submitted proposals
             </h1>
             <p className="mt-2 text-[12px] leading-[1.7] text-[#6b6762]">

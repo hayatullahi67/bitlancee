@@ -2070,6 +2070,8 @@ export default function ClientContractsContent() {
                   {tab.count}
                 </span>
               )}
+
+              
               {tab.alert && (
                 <span className="inline-flex h-2 w-2 rounded-full bg-[#F7931A]" />
               )}
@@ -2183,7 +2185,7 @@ export default function ClientContractsContent() {
                       <button
                         type="button"
                         onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }}
-                        className="rounded-[10px] border border-[#F7931A] bg-white py-3 text-[12px] font-black text-[#F7931A] transition hover:bg-[#FFF8EF]"
+                        className="rounded-[10px] border border-[#1a2332] bg-white py-3 text-[12px] font-black text-[black] transition hover:bg-[#FFF8EF]"
                       >
                         View Details
                       </button>
@@ -2194,7 +2196,7 @@ export default function ClientContractsContent() {
                           const conversationId = createConversationId(contract.jobId, contract.freelancerId);
                           router.push(`/client/dashboard/messages?chat=${conversationId}`);
                         }}
-                        className="rounded-[10px] border border-[#F7931A] bg-[#F7931A] px-2 py-3 text-[11px] font-black leading-tight text-white transition hover:bg-[#E9850F] sm:text-[12px]"
+                        className="rounded-[10px] border border-[#1a2332] bg-[#1a2332] px-2 py-3 text-[11px] font-black leading-tight text-white transition hover:bg-[#E9850F] sm:text-[12px]"
                       >
                         Message Freelancer
                       </button>
@@ -2202,7 +2204,7 @@ export default function ClientContractsContent() {
                   </div>
                 );
               })}
-            </div>
+            </div> 
           ) : (
             <div className="flex min-h-[200px] flex-col items-center justify-center rounded-[14px] border border-dashed border-[#EAE7E2] bg-white px-5 py-10 text-center">
               <FileText className="h-10 w-10 text-[#F7931A]" />
@@ -2281,7 +2283,7 @@ export default function ClientContractsContent() {
                       <button
                         type="button"
                         onClick={() => setSelectedSubmissionId(job.id)}
-                        className="w-full rounded-[10px] bg-gradient-to-r from-orange-600 to-orange-400 py-3 text-[12px] font-black uppercase tracking-[0.1em] text-white transition hover:opacity-90"
+                        className="w-full rounded-[10px] bg-[#1a2332] py-3 text-[12px] font-black uppercase tracking-[0.1em] text-white transition hover:opacity-90"
                       >
                         View Details
                       </button>
@@ -2694,7 +2696,7 @@ export default function ClientContractsContent() {
                   const conversationId = createConversationId(selectedContract.jobId, selectedContract.freelancerId);
                   router.push(`/client/dashboard/messages?chat=${conversationId}`);
                 }}
-                className="flex-1 flex items-center justify-center gap-1.5 rounded-[10px] border border-[#F7931A] bg-[#F7931A] py-3 text-[12px] font-black uppercase tracking-[0.08em] text-white transition hover:bg-[#E9850F]"
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-[10px] border border-[#1a2332] bg-[#1a2332] py-3 text-[12px] font-black uppercase tracking-[0.08em] text-white transition hover:bg-[#1a2332]"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                 Message Freelancer
