@@ -4,10 +4,54 @@ import { useMemo, useState, useEffect } from "react";
 import Button from "@/components/atoms/Button";
 import DashboardMetricCard from "@/components/molecules/DashboardMetricCard";
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
-import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
+import { collection, query, where, onSnapshot } from "firebase/firestore";
 
-// Fallback data
-const FALLBACK_PAYMENTS: any[] = [];
+type PaymentRow = {
+  id: string;
+  freelancer: string;
+  amount: string;
+  amountSats: number;
+  status: "Funded" | "Released" | "Invoice Created";
+  date: string;
+  sortTime: number;
+  method: string;
+  contract: string;
+  memo: string;
+  txRef: string;
+};
+
+type ContractMilestone = {
+  index?: number;
+  title?: string;
+  name?: string;
+  fundedSats?: number;
+  releasedSats?: number;
+  freelancerAmountSats?: number;
+  status?: string;
+  fundedAt?: any;
+  releasedAt?: any;
+};
+
+const FALLBACK_PAYMENTS: PaymentRow[] = [];
+
+const toDate = (value: any) => {
+  if (!value) return null;
+  if (typeof value.toDate === "function") return value.toDate() as Date;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
+const formatPaymentDate = (value: any) =>
+  (toDate(value) ?? new Date()).toLocaleDateString("en-US", {
+    month: "short",
+    day: "2-digit",
+    year: "numeric",
+  });
+
+const getSortTime = (value: any) => (toDate(value) ?? new Date(0)).getTime();
+
+const pluralizeMilestones = (count: number, label: string) =>
+  `${count} ${label} milestone${count === 1 ? "" : "s"}`;
 
 export default function ClientPaymentsContent() {
   const [selectedId, setSelectedId] = useState("");
@@ -27,70 +71,115 @@ export default function ClientPaymentsContent() {
         return;
       }
 
-      // Load conversations with payment data for client
-      const conversationsQuery = query(
-        collection(firebaseDb, 'conversations'),
-        where('clientId', '==', user.uid),
-        orderBy('updatedAt', 'desc')
+      const contractsQuery = query(
+        collection(firebaseDb, "contracts"),
+        where("clientId", "==", user.uid)
       );
 
-      const unsubscribe = onSnapshot(conversationsQuery, (snapshot) => {
-        const conversations = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        }));
+      const unsubscribe = onSnapshot(contractsQuery, (snapshot) => {
+        const processedPayments: PaymentRow[] = [];
 
-        // Process payments from conversations
-        const processedPayments: any[] = [];
+        snapshot.docs.forEach((docSnap) => {
+          const data = docSnap.data() as Record<string, any>;
+          const contractId = docSnap.id;
+          const contractCode = contractId.slice(-6).toUpperCase();
+          const freelancer = data.freelancerName || data.freelancer || "Freelancer";
+          const contractTitle = data.title || data.jobTitle || "Project";
+          const installmentCount = Number(data.paymentInstallments ?? 1) || 1;
+          const milestones = Array.isArray(data.milestones)
+            ? (data.milestones as ContractMilestone[])
+            : [];
 
-        conversations.forEach((conv: any) => {
-          const paymentStatus = conv.paymentStatus;
-          const amount = conv.paymentAmountSats || 0;
-          const currentInstallment = conv.paymentCurrentInstallment || 1;
-          const installments = conv.paymentInstallments || 1;
+          milestones.forEach((milestone, index) => {
+            const milestoneIndex = Number(milestone.index ?? index + 1);
+            const fundedSats = Number(milestone.fundedSats ?? 0);
+            const releasedSats = Number(milestone.releasedSats ?? 0);
+            const openEscrowSats = Math.max(0, fundedSats - releasedSats);
+            const milestoneTitle = milestone.title || milestone.name || `Milestone ${milestoneIndex}`;
 
-          // Only show payments that have invoices created or are funded
-          if ((paymentStatus === 'invoice_created' || paymentStatus === 'funded' || paymentStatus === 'released') && amount > 0) {
-            let status = "Pending";
-            let method = "Lightning Invoice";
-            let txRef = `LN-${conv.id.slice(-8).toUpperCase()}`;
-
-            if (paymentStatus === 'released') {
-              status = "Released";
-              method = "Escrow Release";
-              txRef = `ESC-${conv.id.slice(-8).toUpperCase()}`;
-            } else if (paymentStatus === 'funded') {
-              status = "Funded";
-            } else if (paymentStatus === 'invoice_created') {
-              status = "Invoice Created";
+            if (openEscrowSats > 0) {
+              const paymentDate = milestone.fundedAt || data.paymentReceivedAt || data.updatedAt || data.createdAt;
+              processedPayments.push({
+                id: `INV-${contractCode}-${milestoneIndex}`,
+                freelancer,
+                amount: `${openEscrowSats.toLocaleString()} sats`,
+                amountSats: openEscrowSats,
+                status: "Funded",
+                date: formatPaymentDate(paymentDate),
+                sortTime: getSortTime(paymentDate),
+                method: "Escrow Funded",
+                contract: contractTitle,
+                memo: `${milestoneTitle} (${milestoneIndex} of ${installmentCount}) is funded and waiting for approved work.`,
+                txRef: `ESC-${contractId.slice(-8).toUpperCase()}-${milestoneIndex}`,
+              });
             }
 
-            const paymentDate = conv.paymentReceivedAt || conv.updatedAt;
-            const date = paymentDate ? 
-              (paymentDate.toDate ? paymentDate.toDate() : new Date(paymentDate)) : 
-              new Date();
+            if (releasedSats > 0) {
+              const paymentDate = milestone.releasedAt || data.updatedAt || data.createdAt;
+              processedPayments.push({
+                id: `REL-${contractCode}-${milestoneIndex}`,
+                freelancer,
+                amount: `${releasedSats.toLocaleString()} sats`,
+                amountSats: releasedSats,
+                status: "Released",
+                date: formatPaymentDate(paymentDate),
+                sortTime: getSortTime(paymentDate),
+                method: "Escrow Release",
+                contract: contractTitle,
+                memo: `${milestoneTitle} (${milestoneIndex} of ${installmentCount}) paid from escrow.`,
+                txRef: `PAY-${contractId.slice(-8).toUpperCase()}-${milestoneIndex}`,
+              });
+            }
+          });
 
-            processedPayments.push({
-              id: `INV-${conv.id.slice(-6).toUpperCase()}-${currentInstallment}`,
-              freelancer: conv.freelancerName || conv.freelancer || "Freelancer",
-              amount: `${amount.toLocaleString()} sats`,
-              status,
-              date: date.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-              method,
-              contract: conv.jobTitle || conv.title || "Project",
-              memo: `Milestone ${currentInstallment} of ${installments}`,
-              txRef,
-            });
+          if (milestones.length === 0) {
+            const fundedTotal = Number(data.escrowFundedTotalSats ?? data.paymentPaidAmountSats ?? 0);
+            const releasedTotal = Number(data.escrowReleasedSats ?? 0);
+            const openEscrowSats = Math.max(0, fundedTotal - releasedTotal);
+            const paymentDate = data.paymentReceivedAt || data.updatedAt || data.createdAt;
+
+            if (openEscrowSats > 0) {
+              processedPayments.push({
+                id: `INV-${contractCode}-1`,
+                freelancer,
+                amount: `${openEscrowSats.toLocaleString()} sats`,
+                amountSats: openEscrowSats,
+                status: "Funded",
+                date: formatPaymentDate(paymentDate),
+                sortTime: getSortTime(paymentDate),
+                method: "Escrow Funded",
+                contract: contractTitle,
+                memo: "Funded escrow balance for this contract.",
+                txRef: `ESC-${contractId.slice(-8).toUpperCase()}`,
+              });
+            }
+
+            if (releasedTotal > 0) {
+              processedPayments.push({
+                id: `REL-${contractCode}-1`,
+                freelancer,
+                amount: `${releasedTotal.toLocaleString()} sats`,
+                amountSats: releasedTotal,
+                status: "Released",
+                date: formatPaymentDate(data.updatedAt || data.createdAt),
+                sortTime: getSortTime(data.updatedAt || data.createdAt),
+                method: "Escrow Release",
+                contract: contractTitle,
+                memo: "Released payment from escrow.",
+                txRef: `PAY-${contractId.slice(-8).toUpperCase()}`,
+              });
+            }
           }
         });
 
-        // Sort by date (newest first)
-        processedPayments.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        processedPayments.sort((a, b) => b.sortTime - a.sortTime);
 
         setPayments(processedPayments);
-        if (processedPayments.length > 0 && !selectedId) {
-          setSelectedId(processedPayments[0].id);
-        }
+        setSelectedId((current) =>
+          processedPayments.some((payment) => payment.id === current)
+            ? current
+            : processedPayments[0]?.id ?? ""
+        );
         setLoading(false);
       });
 
@@ -98,7 +187,19 @@ export default function ClientPaymentsContent() {
     });
 
     return () => unsubscribeAuth();
-  }, [selectedId]);
+  }, []);
+
+  const summary = useMemo(() => {
+    const fundedRows = payments.filter((payment) => payment.status === "Funded");
+    const releasedRows = payments.filter((payment) => payment.status === "Released");
+
+    return {
+      escrowBalance: fundedRows.reduce((sum, payment) => sum + payment.amountSats, 0),
+      fundedMilestones: fundedRows.length,
+      totalSpent: releasedRows.reduce((sum, payment) => sum + payment.amountSats, 0),
+      releasedMilestones: releasedRows.length,
+    };
+  }, [payments]);
 
   return (
     <section className="w-full">
@@ -124,21 +225,21 @@ export default function ClientPaymentsContent() {
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         <DashboardMetricCard 
           label="Escrow Balance" 
-          value={`${payments.filter(p => p.status === 'Funded').reduce((sum, p) => sum + parseInt(p.amount.replace(/[^0-9]/g, '')), 0).toLocaleString()} sats`} 
-          change={`${payments.filter(p => p.status === 'Funded').length} active milestones`} 
+          value={`${summary.escrowBalance.toLocaleString()} sats`} 
+          change={pluralizeMilestones(summary.fundedMilestones, "active")} 
           tone="neutral" 
         />
         <DashboardMetricCard 
           label="Pending Approvals" 
-          value={payments.filter(p => p.status === 'Funded').length.toString()} 
+          value={summary.fundedMilestones.toString()} 
           change="Review today" 
           tone="down" 
         />
         <DashboardMetricCard 
-          label="Month Spend" 
-          value={`${payments.filter(p => p.status === 'Released').reduce((sum, p) => sum + parseInt(p.amount.replace(/[^0-9]/g, '')), 0).toLocaleString()} sats`} 
-          change="+12% vs Mar" 
-          tone="up" 
+          label="Total Spent" 
+          value={`${summary.totalSpent.toLocaleString()} sats`} 
+          change={pluralizeMilestones(summary.releasedMilestones, "released")} 
+          tone="neutral" 
         />
       </div>
 

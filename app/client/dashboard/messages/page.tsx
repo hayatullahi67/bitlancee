@@ -785,15 +785,15 @@ export default function ClientMessagesPage() {
   return (
     <div className="min-h-screen bg-[#F7F6F3] font-sans">
       <div className="flex">
-        <ClientSidebar active="/client/dashboard/messages" />
+        <ClientSidebar active="/client/dashboard/messages" hideMobileToggle={!!selectedChat} />
 
-        <div className="flex-1 mt-0 md:mt-[0px] lg:ml-0 pt-[42px] md:pt-0">
-          <div className="flex h-[100dvh] pt-4 md:pt-0">
+        <div className={`flex-1 lg:ml-0 ${selectedChat ? "pt-0" : "pt-3"} md:pt-0`}>
+          <div className="flex h-[100dvh] pt-0">
             <div
               className={`
               w-full md:w-1/3 border-r border-[#e8e6e1]  bg-[#F6F3F1]
               ${selectedChat ? "hidden md:block" : "block"}
-              pt-2 md:pt-0
+              pt-0
             `}
             >
               <MessagesList
@@ -807,7 +807,7 @@ export default function ClientMessagesPage() {
               className={`
               h-full w-full md:w-2/3 bg-[#F7F6F3]
               ${selectedChat ? "block" : "hidden md:block"}
-              pt-2 md:pt-0
+              pt-0
             `}
             >
               {selectedMessage && selectedConversation ? (

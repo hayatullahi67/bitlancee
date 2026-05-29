@@ -28,25 +28,27 @@ interface MessagesListProps {
 
 export default function MessagesList({ messages, onSelectChat, selectedChat }: MessagesListProps) {
   return (
-    <div className="h-full  flex flex-col bg-[#F6F3F1]">
+    <div className="h-full flex  flex-col bg-[#F6F3F1]">
       {/* Header */}
-      <div className="p-3 sm:p-5 pb-1.5 sm:pb-2 border-b border-[#e8e6e1] bg-[#F6F3F1]">
-        <h1 className="text-base sm:text-lg font-bold text-[#232323] mb-0.5 sm:mb-1">Conversations</h1>
-        <p className="text-xs text-gray-400">
-          {messages.filter(m => m.unreadCount > 0).length} unread conversation{messages.filter(m => m.unreadCount > 0).length === 1 ? '' : 's'}
-        </p>
+      <div className="border-b flex justify-end border-[#e8e6e1] bg-[#F6F3F1] px-3 pb-2 pt-2 sm:p-5 sm:pb-2">
+        <div className=" min-w-0 sm:ml-0">
+          <h1 className="mb-0.5 truncate text-[14px] font-bold text-[#232323] sm:mb-1 sm:text-lg">Conversations</h1>
+          <p className="truncate text-[10px] text-gray-400 sm:text-xs">
+            {messages.filter(m => m.unreadCount > 0).length} unread conversation{messages.filter(m => m.unreadCount > 0).length === 1 ? '' : 's'}
+          </p>
+        </div>
       </div>
 
       {/* Search - optional for now */}
-      <div className="p-3 pt-2 sm:p-5 sm:pt-3 border-b border-[#f0ede8] bg-[#F6F3F1]">
+      <div className="border-b border-[#f0ede8] bg-[#F6F3F1] px-3 py-1.5 sm:p-5 sm:pt-3">
         <div className="relative">
           <input
             type="text"
             placeholder="Search chats..."
-            className="w-full pl-9 pr-3 sm:pl-10 sm:pr-4 py-1.5 sm:py-2 bg-[#ffffff] rounded-full text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-orange-400/20"
+            className="w-full rounded-full bg-white py-1.5 pl-8 pr-3 text-[11px] focus:outline-none focus:ring-2 focus:ring-orange-400/20 sm:py-2 sm:pl-10 sm:pr-4 sm:text-sm"
           />
           <svg
-            className="absolute left-2.5 sm:left-3 top-1/2 transform -translate-y-1/2 w-3.5 h-3.5 sm:w-4 sm:h-4 text-gray-400"
+            className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 transform text-gray-400 sm:left-3 sm:h-4 sm:w-4"
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
