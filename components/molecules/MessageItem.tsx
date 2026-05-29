@@ -103,7 +103,7 @@ export default function MessageItem({ message, isSelected, onClick }: MessageIte
         {/* Message Content */}
         <div className="flex-1 min-w-0 text-xs sm:text-sm">
           <div className="flex items-center justify-between mb-1">
-            <h3 className="font-bold text-sm text-[#1a1a1a] truncate">
+            <h3 className="font-bold text-[16px] text-[#1a1a1a] truncate">
               {message.sender.name}
             </h3>
             <span className="text-xs text-gray-400 flex-shrink-0 ml-2">

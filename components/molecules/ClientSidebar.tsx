@@ -15,6 +15,7 @@ interface SidebarItem {
 
 interface ClientSidebarProps {
   active?: string;
+  hideMobileToggle?: boolean;
 }
 
 const CLIENT_SIDEBAR_ITEMS: SidebarItem[] = [
@@ -116,7 +117,7 @@ const CLIENT_SIDEBAR_ITEMS: SidebarItem[] = [
   },
 ];
 
-export default function ClientSidebar({ active = "/client/dashboard" }: ClientSidebarProps) {
+export default function ClientSidebar({ active = "/client/dashboard", hideMobileToggle = false }: ClientSidebarProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [displayName, setDisplayName] = useState("Client");
@@ -252,10 +253,10 @@ export default function ClientSidebar({ active = "/client/dashboard" }: ClientSi
 
   return (
     <>
-      {!isOpen && (
+      {!isOpen && !hideMobileToggle && (
         <button
           onClick={() => setIsOpen(true)}
-          className="lg:hidden fixed top-6 left-4 z-[60] p-2 bg-white rounded-xl border border-[#e7e2dc] shadow-sm text-[#8C4F00]"
+          className="lg:hidden fixed top-4 left-4 z-[60] p-2 bg-white rounded-xl border border-[#e7e2dc] shadow-sm text-[#8C4F00]"
         >
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <line x1="3" y1="12" x2="21" y2="12" />
