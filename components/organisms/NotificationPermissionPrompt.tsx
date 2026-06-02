@@ -3,16 +3,13 @@
 import { useEffect, useState } from "react";
 import { Bell, X } from "lucide-react";
 import { firebaseAuth } from "@/lib/firebase";
-import {
-  listenForForegroundNotifications,
-  registerNotificationDevice,
-} from "@/lib/notifications";
+import { requestOneSignalPermission } from "@/components/organisms/OneSignalInit";
 
 const STORAGE_KEY = "bitlance-notification-prompt-dismissed";
 
 export default function NotificationPermissionPrompt() {
   const [visible, setVisible] = useState(false);
-  const [status, setStatus] = useState<"idle" | "saving" | "enabled" | "blocked" | "missing">("idle");
+  const [status, setStatus] = useState<"idle" | "saving" | "enabled" | "blocked">("idle");
 
   useEffect(() => {
     const unsubscribeAuth = firebaseAuth.onAuthStateChanged((user) => {
@@ -20,53 +17,28 @@ export default function NotificationPermissionPrompt() {
         setVisible(false);
         return;
       }
-
       if (Notification.permission === "granted") {
-        setStatus("enabled");
         setVisible(false);
-        void registerNotificationDevice();
         return;
       }
-
       const dismissed = window.localStorage.getItem(STORAGE_KEY);
       setVisible(Notification.permission === "default" && dismissed !== "1");
       setStatus(Notification.permission === "denied" ? "blocked" : "idle");
     });
-
-    let unsubscribeForeground: (() => void) | undefined;
-    void listenForForegroundNotifications((payload) => {
-      if (typeof window === "undefined" || !("Notification" in window)) return;
-      if (Notification.permission !== "granted") return;
-      const notification = new Notification(payload.title, {
-        body: payload.body,
-        icon: "/favicon.ico",
-        tag: payload.url || payload.title,
-      });
-      notification.onclick = () => {
-        window.focus();
-        if (payload.url) window.location.href = payload.url;
-      };
-    }).then((unsubscribe) => {
-      unsubscribeForeground = unsubscribe;
-    });
-
-    return () => {
-      unsubscribeAuth();
-      unsubscribeForeground?.();
-    };
+    return () => unsubscribeAuth();
   }, []);
 
   if (!visible) return null;
 
   const enableNotifications = async () => {
     setStatus("saving");
-    const result = await registerNotificationDevice();
+    const result = await requestOneSignalPermission();
     if (result.ok) {
       setStatus("enabled");
       setVisible(false);
-      return;
+    } else {
+      setStatus("blocked");
     }
-    setStatus(result.reason === "missing-vapid-key" ? "missing" : "blocked");
   };
 
   const dismiss = () => {
@@ -93,16 +65,11 @@ export default function NotificationPermissionPrompt() {
           <p className="mt-1 text-[12px] leading-5 text-[#6b6762]">
             Get alerts for messages, escrow funding, submitted work, approvals, and change requests even when this tab is closed.
           </p>
-          {status === "missing" ? (
-            <p className="mt-2 text-[11px] text-[#B42318]">
-              Add `NEXT_PUBLIC_FIREBASE_VAPID_KEY` to enable browser push.
-            </p>
-          ) : null}
-          {status === "blocked" ? (
+          {status === "blocked" && (
             <p className="mt-2 text-[11px] text-[#B42318]">
               Notifications are blocked. Enable them from your browser site settings.
             </p>
-          ) : null}
+          )}
           <div className="mt-3 flex gap-2">
             <button
               type="button"

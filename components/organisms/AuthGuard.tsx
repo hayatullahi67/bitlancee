@@ -59,6 +59,39 @@ export default function AuthGuard({
           const userData = userSnap.exists() ? (userSnap.data() as { role?: string }) : {};
           const role = userData.role ?? "";
           if (role === allowedRole) {
+            // Only redirect to onboarding if the account is brand new (no profile data yet).
+            // Existing users who predate the onboarding feature are let through directly.
+            const roleCollection = role === "freelancer" ? "freelancers" : role === "client" ? "clients" : null;
+            if (roleCollection) {
+              const roleSnap = await getDoc(doc(firebaseDb, roleCollection, user.uid));
+              const roleData = roleSnap.exists() ? (roleSnap.data() as Record<string, any>) : {};
+
+              // Determine if this is a genuinely new account with no profile filled in yet.
+              // We check for any meaningful profile field — if any exist, the user is not new.
+              const hasProfileData =
+                roleData.onboardingComplete === true ||
+                !!roleData.title ||
+                !!roleData.bio ||
+                !!roleData.companyName ||
+                !!roleData.roleTitle ||
+                !!roleData.location ||
+                (Array.isArray(roleData.skills) && roleData.skills.length > 0);
+
+              if (!hasProfileData) {
+                // Brand new account — send to onboarding
+                setAllowed(false);
+                setChecking(false);
+                router.replace(`/${role}/onboarding`);
+                return;
+              }
+
+              // Existing user — silently backfill the flag so this check is instant next time
+              if (!roleData.onboardingComplete) {
+                updateDoc(doc(firebaseDb, roleCollection, user.uid), {
+                  onboardingComplete: true,
+                }).catch(() => undefined);
+              }
+            }
             setAllowed(true);
             setChecking(false);
             onlineUpdate();

@@ -327,6 +327,45 @@ export default function ClientJobPostsContent() {
   >([]);
   const [proposalsLoading, setProposalsLoading] = useState(false);
 
+  // ── Applicant avatars per job (for the card avatar stack) ─────────────────
+  const [jobAvatars, setJobAvatars] = useState<Record<string, { url?: string; name: string }[]>>({});
+
+  useEffect(() => {
+    if (!jobs.length) return;
+    jobs.forEach((job) => {
+      if (jobAvatars[job.id]) return; // already fetched
+      const q = query(collection(firebaseDb, "proposals"), where("jobId", "==", job.id));
+      const unsub = onSnapshot(q, async (snap) => {
+        const top = snap.docs.slice(0, 4);
+        const avatars = await Promise.all(
+          top.map(async (d) => {
+            const data = d.data() as any;
+            const fid = data.freelancerId ?? "";
+            const fallbackName = data.freelancerName ?? "F";
+            if (!fid) return { name: fallbackName };
+            try {
+              const [fSnap, aSnap] = await Promise.all([
+                getDoc(doc(firebaseDb, "freelancers", fid)),
+                getDoc(doc(firebaseDb, "all_users", fid)),
+              ]);
+              const f = fSnap.exists() ? (fSnap.data() as any) : {};
+              const a = aSnap.exists() ? (aSnap.data() as any) : {};
+              return {
+                url: f.avatarUrl ?? a.avatarUrl ?? undefined,
+                name: f.fullName ?? a.fullName ?? fallbackName,
+              };
+            } catch {
+              return { name: fallbackName };
+            }
+          })
+        );
+        setJobAvatars((prev) => ({ ...prev, [job.id]: avatars }));
+      });
+      return unsub;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs]);
+
   const selectedCount = Object.values(selectedProposals).filter(Boolean).length;
   const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? jobs[0];
   const jobsToShow = jobs.filter((job) => {
@@ -408,7 +447,7 @@ export default function ClientJobPostsContent() {
             </p>
           </div>
           <Button size="sm" className="rounded-full" onClick={() => setIsPostModalOpen(true)}>
-            Post New Job
+            + Post New Job
           </Button>
         </div>
       </div>
@@ -425,8 +464,8 @@ export default function ClientJobPostsContent() {
             <button
               type="button"
               onClick={() => setActiveTab("all")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "all"
-                  ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
+              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition-all ${activeTab === "all"
+                  ? "bg-[#F7931A] text-white border border-[#F7931A]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
                 }`}
             >
@@ -435,31 +474,38 @@ export default function ClientJobPostsContent() {
             <button
               type="button"
               onClick={() => setActiveTab("active")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "active"
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition-all ${activeTab === "active"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
                 }`}
             >
+              <svg width="8" height="9" viewBox="0 0 8 9" fill="currentColor"><path d="M1 1l6 3.5L1 8V1z" /></svg>
               Active
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("review")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "review"
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition-all ${activeTab === "review"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
                 }`}
             >
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="23 4 23 10 17 10" /><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+              </svg>
               Ongoing
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("paused")}
-              className={`rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] ${activeTab === "paused"
+              className={`inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.08em] transition-all ${activeTab === "paused"
                   ? "bg-[#F7F4F0] text-[#1a1a1a] border border-[#EAE7E2]"
                   : "text-[#6b6762] border border-[#EAE7E2] hover:bg-[#F7F4F0]"
                 }`}
             >
+              <svg width="10" height="11" viewBox="0 0 10 11" fill="currentColor">
+                <rect x="1" y="1" width="3" height="9" rx="1" /><rect x="6" y="1" width="3" height="9" rx="1" />
+              </svg>
               Paused
             </button>
           </div>
@@ -479,6 +525,8 @@ export default function ClientJobPostsContent() {
               <ClientJobPostCard
                 key={job.id}
                 {...job}
+                views={0}
+                applicantAvatars={jobAvatars[job.id] ?? []}
                 companyLogoUrl={job.companyLogo || clientCompanyLogoUrl}
                 clientName={clientName}
                 isSelected={job.id === selectedJobId}
@@ -497,6 +545,14 @@ export default function ClientJobPostsContent() {
               No job posts in this status yet.
             </div>
           )}
+        </div>
+
+        {/* Footer note */}
+        <div className="mt-4 flex items-center gap-1.5 text-[11px] text-[#9e9690]">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          Proposals and views update in real-time.
         </div>
       </div>
 

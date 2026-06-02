@@ -32,7 +32,7 @@ type MilestoneData = {
 
 type ConversationData = {
   id: string;
-  clientId?: string;
+  clientId?: string; 
   clientName?: string;
   contractId?: string;
   conversationId?: string;

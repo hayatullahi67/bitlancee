@@ -1171,7 +1171,7 @@ export default function ProfilePage() {
     totalEarned: "",
     jobSuccess: 0,
     jobsCompleted: 0,
-    hoursWorked: 0,
+    // hoursWorked: 0, // not computed — no time-tracking data source
     responseTime: "",
     availability: "",
     bio: "",
@@ -1517,9 +1517,10 @@ export default function ProfilePage() {
           avatarUrl:       (f.avatarUrl        as string) ?? (a.avatarUrl as string) ?? "",
           verified:        (f.verified         as boolean) ?? false,
           hourlyRate:      (f.hourlyRate        as string) ?? "",
-          totalEarned:     (f.totalEarned       as string) ?? "",
-          jobSuccess:      typeof f.jobSuccess  === "number" ? f.jobSuccess  : 0,
-          jobsCompleted:   typeof f.jobsCompleted === "number" ? f.jobsCompleted : 0,
+          totalEarned:     "",   // computed from contracts below
+          jobSuccess:      0,    // computed from contracts below
+          jobsCompleted:   0,    // computed from contracts below
+          // hoursWorked: 0,     // not computed — no time-tracking data source
           hoursWorked:     typeof f.hoursWorked === "number" ? f.hoursWorked : 0,
           responseTime:    (f.responseTime      as string) ?? "Within a few hours",
           availability:    (f.availability      as string) ?? "Available",
@@ -1543,7 +1544,7 @@ export default function ProfilePage() {
           responseTime: initializedProfile.responseTime,
         });
 
-        // ── Load work history from contracts ─────────────────────────────
+        // ── Load work history, stats, and earnings from contracts ────────
         try {
           const contractsSnap = await getDocs(
             query(collection(firebaseDb, "contracts"), where("freelancerId", "==", user.uid))
@@ -1576,6 +1577,44 @@ export default function ProfilePage() {
               data.workStatus === "submitted" ||
               data.workStatus === "changes_requested");
 
+          // ── Compute totalEarned from released milestone sats ──────────
+          // For each contract, sum up freelancerAmountSats of released milestones.
+          // Fall back to escrowReleasedSats / paymentPaidAmountSats if no milestones.
+          let computedTotalEarned = 0;
+          let computedJobsCompleted = 0;
+          const totalContracts = contractsSnap.docs.length;
+
+          contractsSnap.docs.forEach((d) => {
+            const data = d.data() as any;
+
+            // Count completed contracts for jobSuccess
+            if (isFinished(data)) computedJobsCompleted += 1;
+
+            // Sum released earnings
+            const milestones = Array.isArray(data.milestones) ? data.milestones : [];
+            if (milestones.length > 0) {
+              milestones.forEach((ms: any) => {
+                if (ms.status === "released") {
+                  computedTotalEarned += Number(ms.freelancerAmountSats ?? ms.releasedSats ?? 0);
+                }
+              });
+            } else {
+              // No milestones — use contract-level released field
+              computedTotalEarned += Number(
+                data.escrowReleasedSats ??
+                data.totalReleasedToFreelancerSats ??
+                data.paymentPaidAmountSats ??
+                0
+              );
+            }
+          });
+
+          // jobSuccess = % of contracts that are completed (0 if no contracts)
+          const computedJobSuccess =
+            totalContracts > 0
+              ? Math.round((computedJobsCompleted / totalContracts) * 100)
+              : 0;
+
           const workHistoryFromContracts = contractsSnap.docs
             .map((d) => {
               const data = d.data() as any;
@@ -1599,7 +1638,13 @@ export default function ProfilePage() {
             })
             .sort((a) => (a.status === "COMPLETED" ? -1 : 1));
 
-          setProfile((prev) => ({ ...prev, workHistory: workHistoryFromContracts }));
+          setProfile((prev) => ({
+            ...prev,
+            workHistory: workHistoryFromContracts,
+            totalEarned: computedTotalEarned.toLocaleString(),
+            jobsCompleted: computedJobsCompleted,
+            jobSuccess: computedJobSuccess,
+          }));
         } catch (err) {
           console.error("Failed to load work history from contracts:", err);
         }
@@ -1760,32 +1805,42 @@ export default function ProfilePage() {
                     </div>
                   </div>
 
-                  {/* Stats bar */}
-                  <div className="bg-[#EDEAE5] rounded-[12px] px-4 md:mt-[40px] sm:px-6 py-4 sm:py-5 flex flex-wrap gap-x-6 sm:gap-x-10 gap-y-3">
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Total Earned</p>
-                      <p className="text-[16px] sm:text-[18px] font-black text-[#8C4F00] leading-none">
-                        {profile.totalEarned || 0}
-                        <span className="text-[11px] font-bold ml-1">Sats</span>
+                  {/* Stats cards */}
+                  <div className="grid grid-cols-3 gap-3 md:mt-[40px]">
+                    {/* Total Earned */}
+                    <div className="bg-white rounded-[14px] border border-[#EAE7E2] px-4 py-4 flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                      <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#B0A89E]">Total Earned</p>
+                      <p className="text-[20px] sm:text-[22px] font-black text-[#8C4F00] leading-none tabular-nums">
+                        {profile.totalEarned || "0"}
                       </p>
+                      <p className="text-[10px] font-semibold text-[#C8A87A]">sats</p>
                     </div>
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Job Success</p>
-                      <p className="text-[16px] sm:text-[18px] font-black text-[#1a1a1a] leading-none">
-                        {profile.jobSuccess}<span className="text-[11px] font-bold ml-0.5">%</span>
-                      </p>
+
+                    {/* Job Success */}
+                    <div className="bg-white rounded-[14px] border border-[#EAE7E2] px-4 py-4 flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                      <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#B0A89E]">Job Success</p>
+                      <div className="flex items-end gap-0.5">
+                        <p className="text-[20px] sm:text-[22px] font-black text-[#1a1a1a] leading-none tabular-nums">
+                          {profile.jobSuccess}
+                        </p>
+                        <span className="text-[12px] font-black text-[#999] mb-0.5">%</span>
+                      </div>
+                      {/* Progress bar */}
+                      <div className="h-[3px] w-full bg-[#EAE7E2] rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-[#F7931A] rounded-full transition-all duration-700"
+                          style={{ width: `${profile.jobSuccess}%` }}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Jobs Completed</p>
-                      <p className="text-[16px] sm:text-[18px] font-black text-[#1a1a1a] leading-none">
+
+                    {/* Jobs Completed */}
+                    <div className="bg-white rounded-[14px] border border-[#EAE7E2] px-4 py-4 flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                      <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#B0A89E]">Completed</p>
+                      <p className="text-[20px] sm:text-[22px] font-black text-[#1a1a1a] leading-none tabular-nums">
                         {profile.jobsCompleted}
                       </p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Hours Worked</p>
-                      <p className="text-[16px] sm:text-[18px] font-black text-[#1a1a1a] leading-none">
-                        {profile.hoursWorked.toLocaleString()}
-                      </p>
+                      <p className="text-[10px] font-semibold text-[#B0A89E]">contracts</p>
                     </div>
                   </div>
                 </div>
