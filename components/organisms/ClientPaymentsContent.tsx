@@ -99,7 +99,11 @@ export default function ClientPaymentsContent() {
             const rowSuffix = `${contractId}-${milestoneIndex}-${index}`;
             const fundedSats = Number(milestone.fundedSats ?? 0);
             const releasedSats = Number(milestone.releasedSats ?? 0);
-            const openEscrowSats = Math.max(0, fundedSats - releasedSats);
+            // Use freelancerAmountSats if available — fundedSats includes the platform fee
+            // which belongs to the platform, not the client's escrow balance.
+            const freelancerAmountSats = Number(milestone.freelancerAmountSats ?? 0);
+            const effectiveFunded = freelancerAmountSats > 0 ? Math.min(fundedSats, freelancerAmountSats) : fundedSats;
+            const openEscrowSats = Math.max(0, effectiveFunded - releasedSats);
             const milestoneTitle = milestone.title || milestone.name || `Milestone ${milestoneIndex}`;
 
             if (openEscrowSats > 0) {
@@ -142,7 +146,9 @@ export default function ClientPaymentsContent() {
           if (milestones.length === 0) {
             const fundedTotal = Number(data.escrowFundedTotalSats ?? data.paymentPaidAmountSats ?? 0);
             const releasedTotal = Number(data.escrowReleasedSats ?? 0);
-            const openEscrowSats = Math.max(0, fundedTotal - releasedTotal);
+            // Subtract platform fee so the escrow balance only shows the freelancer's portion
+            const platformFeeSats = Number(data.platformFeeSats ?? 0);
+            const openEscrowSats = Math.max(0, fundedTotal - platformFeeSats - releasedTotal);
             const paymentDate = data.paymentReceivedAt || data.updatedAt || data.createdAt;
 
             if (openEscrowSats > 0) {

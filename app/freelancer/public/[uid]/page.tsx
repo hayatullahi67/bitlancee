@@ -10,7 +10,7 @@ import { useParams, useRouter } from "next/navigation";
 import { MapPin, Calendar, BadgeCheck, ArrowLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { firebaseDb } from "@/lib/firebase";
-import { doc, getDoc, getDocs, collection, query, where } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, onSnapshot } from "firebase/firestore";
 
 export default function FreelancerPublicProfilePage() {
   const params = useParams<{ uid: string }>();
@@ -32,7 +32,7 @@ export default function FreelancerPublicProfilePage() {
     totalEarned: "",
     jobSuccess: 0,
     jobsCompleted: 0,
-    hoursWorked: 0,
+    // hoursWorked: 0, // not computed — no time-tracking data source
     responseTime: "",
     availability: "",
     lastActive: "",
@@ -60,6 +60,8 @@ export default function FreelancerPublicProfilePage() {
   useEffect(() => {
     if (!uid) { setNotFound(true); setLoading(false); return; }
 
+    let unsubscribeContracts: (() => void) | null = null;
+
     const load = async () => {
       try {
         const [allSnap, freeSnap] = await Promise.all([
@@ -69,6 +71,7 @@ export default function FreelancerPublicProfilePage() {
 
         if (!allSnap.exists() && !freeSnap.exists()) {
           setNotFound(true);
+          setLoading(false);
           return;
         }
 
@@ -87,7 +90,9 @@ export default function FreelancerPublicProfilePage() {
         const firstName = (f.firstName as string) || (a.firstName as string) || "";
         const lastName  = (f.lastName  as string) || (a.lastName  as string) || "";
 
-        setProfile({
+        // Set static profile fields first
+        setProfile((prev) => ({
+          ...prev,
           firstName,
           lastName,
           title:           (f.title           as string) ?? "",
@@ -96,56 +101,71 @@ export default function FreelancerPublicProfilePage() {
           avatarUrl:       (f.avatarUrl        as string) ?? (a.avatarUrl as string) ?? "",
           verified:        (f.verified         as boolean) ?? false,
           hourlyRate:      (f.hourlyRate        as string) ?? "",
-          totalEarned:     (f.totalEarned       as string) ?? "",
-          jobSuccess:      typeof f.jobSuccess  === "number" ? f.jobSuccess  : 0,
-          jobsCompleted:   typeof f.jobsCompleted === "number" ? f.jobsCompleted : 0,
-          hoursWorked:     typeof f.hoursWorked === "number" ? f.hoursWorked : 0,
           responseTime:    (f.responseTime      as string) ?? "",
           availability:    (f.availability      as string) ?? "",
           lastActive:      (f.lastActive        as string) ?? "",
           bio:             (f.bio               as string) ?? "",
           skills:          Array.isArray(f.skills)          ? f.skills          : [],
           performanceData: Array.isArray(f.performanceData) ? f.performanceData : [],
-          workHistory:     Array.isArray(f.workHistory)     ? f.workHistory     : [],
           portfolioItems:  Array.isArray(f.portfolioItems)  ? f.portfolioItems  : [],
-        });
+        }));
 
-        // ── Load work history from contracts ─────────────────────────────
-        try {
-          const contractsSnap = await getDocs(
-            query(collection(firebaseDb, "contracts"), where("freelancerId", "==", uid))
-          );
+        // ── Real-time contracts listener ──────────────────────────────
+        const parseSatsValue = (value: unknown): number => {
+          if (typeof value === "number") return value;
+          const cleaned = String(value ?? "").replace(/[^0-9]/g, "");
+          return cleaned ? Number(cleaned) : 0;
+        };
 
-          const formatContractDate = (value: any): string => {
-            if (!value) return "";
-            const d = typeof value.toDate === "function" ? value.toDate() : new Date(value);
-            if (isNaN(d.getTime())) return "";
-            return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
-          };
+        const formatContractDate = (value: any): string => {
+          if (!value) return "";
+          const d = typeof value.toDate === "function" ? value.toDate() : new Date(value);
+          if (isNaN(d.getTime())) return "";
+          return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+        };
 
-          const parseSatsValue = (value: unknown): number => {
-            if (typeof value === "number") return value;
-            const cleaned = String(value ?? "").replace(/[^0-9]/g, "");
-            return cleaned ? Number(cleaned) : 0;
-          };
+        const isFinished = (data: any) =>
+          data.status === "Completed" ||
+          data.paymentStatus === "released" ||
+          data.workStatus === "approved" ||
+          data.workStatus === "completed";
 
-          const isFinished = (data: any) =>
-            data.status === "Completed" ||
-            data.paymentStatus === "released" ||
-            data.workStatus === "approved" ||
-            data.workStatus === "completed";
+        const isOngoing = (data: any) =>
+          !isFinished(data) &&
+          (data.paymentStatus === "funded" ||
+            Number(data.escrowFundedTotalSats ?? 0) > 0 ||
+            data.workStatus === "in_progress" ||
+            data.workStatus === "submitted" ||
+            data.workStatus === "changes_requested");
 
-          const isOngoing = (data: any) =>
-            !isFinished(data) &&
-            (data.paymentStatus === "funded" ||
-              Number(data.escrowFundedTotalSats ?? 0) > 0 ||
-              data.workStatus === "in_progress" ||
-              data.workStatus === "submitted" ||
-              data.workStatus === "changes_requested");
+        unsubscribeContracts = onSnapshot(
+          query(collection(firebaseDb, "contracts"), where("freelancerId", "==", uid)),
+          (snapshot) => {
+            let computedTotalEarned = 0;
+            let computedJobsCompleted = 0;
+            const totalContracts = snapshot.docs.length;
 
-          const workHistoryFromContracts = contractsSnap.docs
-            .map((d) => {
+            const workHistoryFromContracts = snapshot.docs.map((d) => {
               const data = d.data() as any;
+
+              if (isFinished(data)) computedJobsCompleted += 1;
+
+              const milestones = Array.isArray(data.milestones) ? data.milestones : [];
+              if (milestones.length > 0) {
+                milestones.forEach((ms: any) => {
+                  if (ms.status === "released") {
+                    computedTotalEarned += Number(ms.freelancerAmountSats ?? ms.releasedSats ?? 0);
+                  }
+                });
+              } else {
+                computedTotalEarned += Number(
+                  data.escrowReleasedSats ??
+                  data.totalReleasedToFreelancerSats ??
+                  data.paymentPaidAmountSats ??
+                  0
+                );
+              }
+
               const amountSats =
                 typeof data.paymentTotalAmountSats === "number"
                   ? data.paymentTotalAmountSats
@@ -154,11 +174,8 @@ export default function FreelancerPublicProfilePage() {
               const startStr = formatContractDate(data.startDate);
               const endStr = formatContractDate(data.dueDate ?? data.updatedAt);
               const period = startStr && endStr ? `${startStr} – ${endStr}` : startStr || endStr || "";
-              const statusLabel = isFinished(data)
-                ? "COMPLETED"
-                : isOngoing(data)
-                  ? "ONGOING"
-                  : "ACTIVE";
+              const statusLabel = isFinished(data) ? "COMPLETED" : isOngoing(data) ? "ONGOING" : "ACTIVE";
+
               return {
                 title: data.title ?? "Contract",
                 amount: amountLabel,
@@ -167,22 +184,35 @@ export default function FreelancerPublicProfilePage() {
                 review: data.clientReview ?? data.review ?? "",
                 period,
               };
-            })
-            .sort((a) => (a.status === "COMPLETED" ? -1 : 1));
+            }).sort((a) => (a.status === "COMPLETED" ? -1 : 1));
 
-          setProfile((prev) => ({ ...prev, workHistory: workHistoryFromContracts }));
-        } catch (err) {
-          console.error("Failed to load work history from contracts:", err);
-        }
+            const computedJobSuccess =
+              totalContracts > 0
+                ? Math.round((computedJobsCompleted / totalContracts) * 100)
+                : 0;
+
+            setProfile((prev) => ({
+              ...prev,
+              workHistory: workHistoryFromContracts,
+              totalEarned: computedTotalEarned.toLocaleString(),
+              jobsCompleted: computedJobsCompleted,
+              jobSuccess: computedJobSuccess,
+            }));
+
+            setLoading(false);
+          },
+          () => { setLoading(false); }
+        );
       } catch (err) {
         console.error("Failed to load public profile:", err);
         setNotFound(true);
-      } finally {
         setLoading(false);
       }
     };
 
     load();
+
+    return () => { unsubscribeContracts?.(); };
   }, [uid]);
 
   // ── derived ────────────────────────────────────────────────────────────────
@@ -302,38 +332,43 @@ export default function FreelancerPublicProfilePage() {
                 </div>
               </div>
 
-              {/* Stats bar */}
-              <div className="bg-[#EDEAE5] rounded-[12px] px-4 md:mt-[60px] sm:px-6 py-4 sm:py-5 flex flex-wrap gap-x-6 sm:gap-x-10 gap-y-3">
-
-                <div className="md:w-[150px]">
-                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Total Earned</p>
-                  <p className="text-[16px] sm:text-[18px] font-black text-[#8C4F00] leading-none">
-                    {profile.totalEarned || "—"}
-                    {profile.totalEarned && <span className="text-[11px] font-bold ml-1">Sats</span>}
+              {/* Stats cards */}
+              <div className="grid grid-cols-3 gap-3 md:mt-[60px]">
+                {/* Total Earned */}
+                <div className="bg-white rounded-[14px] border border-[#EAE7E2] px-4 py-4 flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#B0A89E]">Total Earned</p>
+                  <p className="text-[20px] sm:text-[22px] font-black text-[#8C4F00] leading-none tabular-nums">
+                    {profile.totalEarned || "0"}
                   </p>
+                  <p className="text-[10px] font-semibold text-[#C8A87A]">sats</p>
                 </div>
 
-                <div className="md:w-[150px]">
-                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Job Success</p>
-                  <p className="text-[16px] sm:text-[18px] font-black text-[#1a1a1a] leading-none">
-                    {profile.jobSuccess}<span className="text-[11px] font-bold ml-0.5">%</span>
-                  </p>
+                {/* Job Success */}
+                <div className="bg-white rounded-[14px] border border-[#EAE7E2] px-4 py-4 flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#B0A89E]">Job Success</p>
+                  <div className="flex items-end gap-0.5">
+                    <p className="text-[20px] sm:text-[22px] font-black text-[#1a1a1a] leading-none tabular-nums">
+                      {profile.jobSuccess}
+                    </p>
+                    <span className="text-[12px] font-black text-[#999] mb-0.5">%</span>
+                  </div>
+                  {/* Progress bar */}
+                  <div className="h-[3px] w-full bg-[#EAE7E2] rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#F7931A] rounded-full transition-all duration-700"
+                      style={{ width: `${profile.jobSuccess}%` }}
+                    />
+                  </div>
                 </div>
 
-                <div className="md:w-[150px]">
-                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Jobs Completed</p>
-                  <p className="text-[16px] sm:text-[18px] font-black text-[#1a1a1a] leading-none">
+                {/* Jobs Completed */}
+                <div className="bg-white rounded-[14px] border border-[#EAE7E2] px-4 py-4 flex flex-col gap-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.04)]">
+                  <p className="text-[9px] font-black uppercase tracking-[0.14em] text-[#B0A89E]">Completed</p>
+                  <p className="text-[20px] sm:text-[22px] font-black text-[#1a1a1a] leading-none tabular-nums">
                     {profile.jobsCompleted}
                   </p>
+                  <p className="text-[10px] font-semibold text-[#B0A89E]">contracts</p>
                 </div>
-
-                <div className="md:w-[150px]">
-                  <p className="text-[9px] font-black uppercase tracking-[0.12em] text-[#999] mb-1">Hours Worked</p>
-                  <p className="text-[16px] sm:text-[18px] font-black text-[#1a1a1a] leading-none">
-                    {profile.hoursWorked.toLocaleString()}
-                  </p>
-                </div>
-
               </div>
             </div>
             {/* END DIV-LEFT ─────────────────────────────────────── */}

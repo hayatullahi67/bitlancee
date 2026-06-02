@@ -65,7 +65,7 @@ export default function SignupPage() {
         createdAt: serverTimestamp(),
       });
 
-      router.push(role === 'freelancer' ? '/freelancer/dashboard' : '/client/dashboard');
+      router.push(role === 'freelancer' ? '/freelancer/onboarding' : '/client/onboarding');
     } catch (error: any) {
       setErrorMessage(error?.message ?? 'Failed to create account.');
     } finally {
