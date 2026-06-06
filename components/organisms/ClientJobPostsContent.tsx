@@ -679,7 +679,6 @@ export default function ClientJobPostsContent() {
                           clientAvatarUrl: clientIdentity.avatarUrl,
                           freelancerAvatarUrl: freelancerIdentity.avatarUrl,
                           paymentTotalAmountSats,
-                          paymentStatus: "unfunded",
                           createdBy: "client",
                           canFreelancerMessage: true,
                           unread: {
@@ -738,6 +737,7 @@ export default function ClientJobPostsContent() {
                       contractRef,
                       {
                         jobId: selectedJob.id,
+                        proposalId: proposal.id,
                         clientId: firebaseAuth.currentUser?.uid ?? "",
                         freelancerId: proposal.freelancerId,
                         freelancerName: proposal.name,
@@ -745,7 +745,6 @@ export default function ClientJobPostsContent() {
                         status: "Active",
                         budget: selectedJob.budget,
                         paymentTotalAmountSats,
-                        paymentStatus: "unfunded",
                         progress: 0,
                         nextMilestone: "Kickoff & onboarding",
                         startDate: serverTimestamp(),
@@ -774,7 +773,6 @@ export default function ClientJobPostsContent() {
                         freelancerAvatarUrl:
                           freelancerIdentityMap.get(proposal.freelancerId)?.avatarUrl ?? "",
                         paymentTotalAmountSats,
-                        paymentStatus: "unfunded",
                         createdBy: "system",
                         canFreelancerMessage: true,
                         unread: {

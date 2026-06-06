@@ -71,6 +71,7 @@ type EscrowMilestone = {
 type Conversation = {
   id: string;
   jobId: string;
+  proposalId?: string;
   jobTitle?: string;
   clientId: string;
   clientName?: string;
@@ -111,6 +112,37 @@ type Conversation = {
   } | null;
   submissionReviewDueAt?: any;
   revisionMessage?: string;
+};
+
+const numberField = (value: unknown) => Number(value ?? 0);
+
+const hasFundedEscrow = (data: Record<string, unknown>) => {
+  const fundedTotal = Number(data.escrowFundedTotalSats ?? data.paymentPaidAmountSats ?? 0);
+  const releasedTotal = Number(data.escrowReleasedSats ?? 0);
+  const hasFundedMilestone = Array.isArray(data.milestones)
+    ? data.milestones.some((milestone) => {
+        const item = milestone as Record<string, unknown>;
+        const funded = numberField(item.fundedSats);
+        const released = numberField(item.releasedSats);
+        return funded > released;
+      })
+    : false;
+
+  return fundedTotal > releasedTotal || hasFundedMilestone;
+};
+
+const normalizePaymentStatus = (data: Record<string, unknown>): Conversation["paymentStatus"] => {
+  const status = typeof data.paymentStatus === "string" ? data.paymentStatus : "unfunded";
+  if (!["unfunded", "invoice_created", "funded", "released", "disputed", "expired"].includes(status)) {
+    return "unfunded";
+  }
+  if ((status === "funded" || status === "released") && !hasFundedEscrow(data)) {
+    return "unfunded";
+  }
+  if (status === "invoice_created" && !data.paymentRequest) {
+    return "unfunded";
+  }
+  return status as Conversation["paymentStatus"];
 };
 
 const formatTimestamp = (value?: any) => {
@@ -240,6 +272,7 @@ export default function ClientMessagesPage() {
             return {
               id: docSnap.id,
               jobId: data.jobId ?? "",
+              proposalId: data.proposalId ?? "",
               jobTitle: data.jobTitle ?? "",
               clientId: data.clientId ?? "",
               clientName: data.clientName ?? "",
@@ -251,7 +284,7 @@ export default function ClientMessagesPage() {
               lastMessage: data.lastMessage ?? {},
               unread: data.unread ?? {},
               // otherOnline removed — derived live from presenceMap in messageList
-              paymentStatus: data.paymentStatus ?? "unfunded",
+              paymentStatus: normalizePaymentStatus(data),
               paymentAmountSats: Number(data.paymentAmountSats ?? 0),
               paymentTotalAmountSats: Number(data.paymentTotalAmountSats ?? 0),
               paymentInstallments: Number(data.paymentInstallments ?? 0),
@@ -490,6 +523,17 @@ export default function ClientMessagesPage() {
 
     const contractSnap = await getDoc(doc(firebaseDb, "contracts", contractId));
     const contractData = contractSnap.exists() ? (contractSnap.data() as any) : {};
+    if (!contractSnap.exists() || contractData.status !== "Active") {
+      throw new Error("Accept this freelancer's proposal before funding escrow.");
+    }
+    if (
+      contractData.jobId !== selectedConversation.jobId ||
+      contractData.clientId !== currentUserId ||
+      contractData.freelancerId !== selectedConversation.freelancerId
+    ) {
+      throw new Error("This escrow is not linked to the accepted job contract.");
+    }
+
     const fundedAmount = selectedConversation.escrowFundedTotalSats || Number(contractData.escrowFundedTotalSats ?? 0) || 0;
     const totalAmount =
       selectedConversation.paymentTotalAmountSats ||
@@ -555,6 +599,12 @@ export default function ClientMessagesPage() {
     }
 
     const paymentUpdate = {
+      contractId,
+      conversationId: selectedConversation.id,
+      jobId: selectedConversation.jobId,
+      proposalId: selectedConversation.proposalId ?? contractData.proposalId ?? "",
+      clientId: selectedConversation.clientId,
+      freelancerId: selectedConversation.freelancerId,
       paymentProvider: "blink",
       paymentStatus: "invoice_created",
       paymentTotalAmountSats: totalAmount,
@@ -712,6 +762,12 @@ export default function ClientMessagesPage() {
       const firstReadyMilestone = nextMilestones.find((milestone) => milestone.status === "funded" && !milestone.releasedSats) ?? nextMilestones[0];
       const allMilestonesFunded = nextMilestones.every((milestone) => milestone.status === "funded" || milestone.status === "released");
       const fundedUpdate = {
+        contractId,
+        conversationId: selectedConversation.id,
+        jobId: selectedConversation.jobId,
+        proposalId: selectedConversation.proposalId ?? contractData.proposalId ?? "",
+        clientId: selectedConversation.clientId,
+        freelancerId: selectedConversation.freelancerId,
         paymentStatus: "funded",
         workStatus: "in_progress",
         paymentInstallments,
