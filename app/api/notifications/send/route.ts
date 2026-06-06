@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
 const FIREBASE_WEB_API_KEY =
   process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? "AIzaSyCr_rWHnm0w79J63dm69DEMkjawulE5Ovk";
 
@@ -198,7 +196,7 @@ async function sendEmail(
 </body>
 </html>`;
 
-  const { error } = await resend.emails.send({
+  const { error } = await new Resend(process.env.RESEND_API_KEY).emails.send({
     from: "Bitlance <onboarding@resend.dev>",
     to: toEmail,
     subject: payload.title,

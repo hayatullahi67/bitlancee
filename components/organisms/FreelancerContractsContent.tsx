@@ -96,6 +96,48 @@ const parseSats = (value: unknown) => {
   return cleaned ? Number(cleaned) : 0;
 };
 
+const numberField = (value: unknown) => Number(value ?? 0);
+
+const hasFundedEscrow = (data: Record<string, unknown>) => {
+  const fundedTotal = Number(data.escrowFundedTotalSats ?? data.paymentPaidAmountSats ?? 0);
+  const releasedTotal = Number(data.escrowReleasedSats ?? 0);
+  const hasFundedMilestone = Array.isArray(data.milestones)
+    ? data.milestones.some((milestone) => {
+        const item = milestone as Record<string, unknown>;
+        const funded = numberField(item.fundedSats);
+        const released = numberField(item.releasedSats);
+        return funded > released;
+      })
+    : false;
+
+  return fundedTotal > releasedTotal || hasFundedMilestone;
+};
+
+const normalizePaymentStatus = (data: Record<string, unknown>): Contract["paymentStatus"] => {
+  const status = typeof data.paymentStatus === "string" ? data.paymentStatus : "unfunded";
+  if (!["unfunded", "invoice_created", "funded", "released", "expired"].includes(status)) {
+    return "unfunded";
+  }
+  if ((status === "funded" || status === "released") && !hasFundedEscrow(data)) {
+    return "unfunded";
+  }
+  if (status === "invoice_created" && !data.paymentRequest) {
+    return "unfunded";
+  }
+  return status as Contract["paymentStatus"];
+};
+
+const normalizeWorkStatus = (data: Record<string, unknown>): Contract["workStatus"] => {
+  const status = typeof data.workStatus === "string" ? data.workStatus : "not_started";
+  if (!["not_started", "in_progress", "submitted", "changes_requested", "approved", "completed"].includes(status)) {
+    return "not_started";
+  }
+  if (status === "in_progress" && !hasFundedEscrow(data)) {
+    return "not_started";
+  }
+  return status as Contract["workStatus"];
+};
+
 const calculateInstallmentAmount = (total: number, installments: number, installment: number) => {
   const safeTotal = Math.max(0, Math.trunc(total));
   const safeInstallments = Math.max(1, Math.min(3, Math.trunc(installments)));
@@ -404,7 +446,7 @@ export default function FreelancerContractsContent() {
               startDate: formatDate(data.startDate),
               dueDate: formatDate(data.dueDate),
               description: data.description ?? "-",
-              paymentStatus: data.paymentStatus ?? "unfunded",
+              paymentStatus: normalizePaymentStatus(data),
               paymentInstallments: Number(data.paymentInstallments ?? 1),
               paymentCurrentInstallment: Number(data.paymentCurrentInstallment ?? 1),
               paymentReleasedInstallments: Number(data.paymentReleasedInstallments ?? 0),
@@ -415,7 +457,7 @@ export default function FreelancerContractsContent() {
               platformFeePercent: Number(data.platformFeePercent ?? 5),
               escrowFundedTotalSats: Number(data.escrowFundedTotalSats ?? 0),
               escrowReleasedSats: Number(data.escrowReleasedSats ?? 0),
-              workStatus: data.workStatus ?? "not_started",
+              workStatus: normalizeWorkStatus(data),
               submissionMessage: data.submissionMessage ?? "",
               submissionLink: data.submissionLink ?? "",
               submissionAttachment: data.submissionAttachment ?? null,

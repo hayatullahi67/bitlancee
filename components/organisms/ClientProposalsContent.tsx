@@ -282,9 +282,10 @@ export default function ClientProposalsContent() {
       batch.update(doc(firebaseDb, "proposals", proposal.id), { status: "accepted", updatedAt: serverTimestamp() });
       batch.set(doc(firebaseDb, "contracts", contractId), {
         jobId: job.id, clientId: user.uid, freelancerId: proposal.freelancerId,
+        proposalId: proposal.id,
         freelancerName: freelancerIdentity.name, title: job.title, description: job.description,
         status: "Active", budget: job.budget, contractType: job.jobType || "Fixed Price",
-        paymentTotalAmountSats, paymentStatus: "unfunded", progress: 0,
+        paymentTotalAmountSats, progress: 0,
         nextMilestone: "Kickoff & onboarding", unreadByClient: false, unreadByFreelancer: true,
         createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
       }, { merge: true });
@@ -293,7 +294,7 @@ export default function ClientProposalsContent() {
         clientId: user.uid, clientName: clientIdentity.current.name,
         freelancerId: proposal.freelancerId, freelancerName: freelancerIdentity.name,
         clientAvatarUrl: clientIdentity.current.avatarUrl, freelancerAvatarUrl: freelancerIdentity.avatarUrl,
-        paymentTotalAmountSats, paymentStatus: "unfunded", createdBy: "system",
+        paymentTotalAmountSats, createdBy: "system",
         canFreelancerMessage: true,
         unread: { [user.uid]: 0, [proposal.freelancerId]: 1 },
         updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
@@ -341,7 +342,7 @@ export default function ClientProposalsContent() {
         clientId: user.uid, clientName: clientIdentity.current.name,
         freelancerId: proposal.freelancerId, freelancerName: freelancerIdentity.name,
         clientAvatarUrl: clientIdentity.current.avatarUrl, freelancerAvatarUrl: freelancerIdentity.avatarUrl,
-        paymentTotalAmountSats: parseSats(job.budget), paymentStatus: "unfunded",
+        paymentTotalAmountSats: parseSats(job.budget),
         createdBy: "client", canFreelancerMessage: true,
         unread: { [user.uid]: 0, [proposal.freelancerId]: 0 },
         updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
