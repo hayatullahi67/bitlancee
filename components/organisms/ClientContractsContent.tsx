@@ -1898,16 +1898,16 @@ export default function ClientContractsContent() {
   ] as const;
 
   return (
-    <section className="w-full min-h-screen bg-gray-50">
+    <section className="w-full min-h-screen ">
       {/* PAGE HEADER */}
-      <div className="bg-white border-b border-gray-100 px-6 py-5">
+      <div className="bg- border-b border-gray-100 px-6 py-5">
         <p className="text-[11px] font-bold uppercase tracking-widest text-orange-600 mb-1">Contracts</p>
         <h1 className="text-2xl font-black text-gray-900 tracking-tight">Your Contracts</h1>
         <p className="text-sm text-gray-500 mt-0.5">Track your projects, review submissions, and manage payments.</p>
       </div>
 
       {/* TABS */}
-      <div className="bg-white border-b border-gray-100 px-6">
+      <div className="bg-white border-b rounded-[8px] border-gray-100 px-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center">
             {TABS.map((tab) => {
