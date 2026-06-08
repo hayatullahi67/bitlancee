@@ -1720,6 +1720,7 @@ export default function ClientContractsContent() {
   const [isRequestingChanges, setIsRequestingChanges] = useState(false);
   const [freelancerData, setFreelancerData] = useState<any>(null);
   const [loadingFreelancer, setLoadingFreelancer] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
   const freelancerNameCache = useRef<Record<string, string>>({});
@@ -1831,6 +1832,8 @@ export default function ClientContractsContent() {
         (snapshot) => {
           const items: SubmittedJob[] = snapshot.docs.map((docSnap) => {
             const data = docSnap.data() as any;
+            const rawStatus = String(data.status ?? "pending").toLowerCase();
+            const status = rawStatus === "approved" ? "approved" : rawStatus === "rejected" ? "rejected" : "pending";
             return {
               id: docSnap.id,
               contractId: data.contractId ?? "",
@@ -1838,7 +1841,7 @@ export default function ClientContractsContent() {
               link: data.link ?? "",
               attachment: data.attachment ?? null,
               submittedAt: data.submittedAt?.toDate() ?? new Date(),
-              status: data.status ?? "pending",
+              status,
               revisionMessage: data.revisionMessage ?? "",
               milestoneIndex: data.milestoneIndex,
               milestoneTitle: data.milestoneTitle ?? "",
@@ -1861,12 +1864,37 @@ export default function ClientContractsContent() {
 
   const ongoingContracts = useMemo(() => contracts.filter(isEscrowContract), [contracts]);
   const finishedContracts = useMemo(() => contracts.filter(isFinishedContract), [contracts]);
-  const submittedJobsForReview = submittedJobs;
   const needsAttentionCount = submittedJobs.filter((j) => j.status === "pending").length;
   const reviewDetailRef = useRef<HTMLDivElement | null>(null);
   const [reviewListHeight, setReviewListHeight] = useState<number | null>(null);
 
-  const visibleContracts = view === "all" ? contracts : view === "ongoing" ? ongoingContracts : finishedContracts;
+  const visibleContracts = useMemo(() => {
+    const base = view === "all" ? contracts : view === "ongoing" ? ongoingContracts : finishedContracts;
+    if (!searchQuery.trim()) return base;
+    const q = searchQuery.toLowerCase();
+    return base.filter(
+      (c) =>
+        c.title.toLowerCase().includes(q) ||
+        c.freelancer.toLowerCase().includes(q) ||
+        (c.description ?? "").toLowerCase().includes(q)
+    );
+  }, [view, contracts, ongoingContracts, finishedContracts, searchQuery]);
+
+  const filteredSubmittedJobs = useMemo(() => {
+    if (!searchQuery.trim()) return submittedJobs;
+    const q = searchQuery.toLowerCase();
+    return submittedJobs.filter((job) => {
+      const contract = contracts.find((c) => c.id === job.contractId);
+      return (
+        (contract?.title ?? "").toLowerCase().includes(q) ||
+        (contract?.freelancer ?? "").toLowerCase().includes(q) ||
+        (job.description ?? "").toLowerCase().includes(q)
+      );
+    });
+  }, [submittedJobs, contracts, searchQuery]);
+
+  const submittedJobsForReview = filteredSubmittedJobs;
+
   const selectedContract = contracts.find((c) => c.id === selectedId) ?? visibleContracts[0];
   const selectedSubmission = selectedSubmissionId ? submittedJobs.find((j) => j.id === selectedSubmissionId) ?? null : null;
   const selectedSubmissionContract = selectedSubmission ? contracts.find((c) => c.id === selectedSubmission.contractId) ?? null : null;
@@ -2057,16 +2085,30 @@ export default function ClientContractsContent() {
   return (
     <section className="w-full min-h-screen ">
       {/* PAGE HEADER */}
-      <div className="bg- border-b border-gray-100 px-6 py-5">
+      <div className="bg- border-b border-gray-100 px-4 sm:px-6 py-4 sm:py-5">
         <p className="text-[11px] font-bold uppercase tracking-widest text-orange-600 mb-1">Contracts</p>
-        <h1 className="text-2xl font-black text-gray-900 tracking-tight">Your Contracts</h1>
+        <h1 className="text-xl sm:text-2xl font-black text-gray-900 tracking-tight">Your Contracts</h1>
         <p className="text-sm text-gray-500 mt-0.5">Track your projects, review submissions, and manage payments.</p>
       </div>
 
       {/* TABS */}
-      <div className="bg-white border-b rounded-[8px] border-gray-100 px-6">
+      <div className="bg-white border-b rounded-[8px] border-gray-100 px-3 sm:px-6">
+        {/* Search + Filter row — mobile only, shown above tabs */}
+        <div className="flex sm:hidden items-center gap-2 py-3 border-b border-gray-100">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder={activeTab === "submitted" ? "Search submitted work..." : "Search contracts..."}
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 py-2 pl-8 pr-3 text-[13px] text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-300"
+            />
+          </div>
+        </div>
         <div className="flex items-center justify-between">
-          <div className="flex items-center">
+          {/* Tabs — horizontally scrollable on mobile */}
+          <div className="flex items-center overflow-x-auto -mb-px" style={{ scrollbarWidth: "none" }}>
             {TABS.map((tab) => {
               const isActive = tab.id === "submitted"
                 ? activeTab === "submitted"
@@ -2078,38 +2120,39 @@ export default function ClientContractsContent() {
                   onClick={() => {
                     if (tab.id === "submitted") { setActiveTab("submitted"); }
                     else { setActiveTab("contracts"); setView(tab.id as "all" | "ongoing" | "finished"); }
+                    setSearchQuery("");
                   }}
-                  className={`relative flex items-center gap-2 px-4 py-4 text-[13px] font-semibold transition-colors ${isActive ? "text-gray-900 border-b-2 border-gray-900" : "text-gray-500 hover:text-gray-700 border-b-2 border-transparent"}`}
+                  className={`relative flex flex-shrink-0 items-center gap-1.5 px-3 sm:px-4 py-4 text-[12px] sm:text-[13px] font-semibold transition-colors ${isActive ? "text-gray-900 border-b-2 border-gray-900" : "text-gray-500 hover:text-gray-700 border-b-2 border-transparent"}`}
                 >
                   {tab.label}
                   <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-bold ${isActive ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-500"}`}>
                     {tab.count}
                   </span>
-                  {tab.alert && <span className="absolute right-2 top-3 h-2 w-2 rounded-full bg-orange-500" />}
+                  {"alert" in tab && tab.alert && <span className="absolute right-1 top-3 h-2 w-2 rounded-full bg-orange-500" />}
                 </button>
               );
             })}
           </div>
-          <div className="flex items-center gap-2">
+          {/* Search + Filter — hidden on mobile (shown above), visible on sm+ */}
+          <div className="hidden sm:flex items-center gap-2 flex-shrink-0 pl-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
               <input
                 type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={activeTab === "submitted" ? "Search submitted work..." : "Search contracts..."}
-                className="rounded-lg border border-gray-200 bg-gray-50 py-2 pl-8 pr-3 text-[13px] text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-300 w-52"
+                className="rounded-lg border border-gray-200 bg-gray-50 py-2 pl-8 pr-3 text-[13px] text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-100 focus:border-orange-300 w-44 lg:w-52"
               />
             </div>
-            <button type="button" className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-              <Filter className="h-3.5 w-3.5" /> Filter
-            </button>
           </div>
         </div>
       </div>
 
       {/* CONTENT */}
-      <div className="px-6 py-5">
+      <div className="px-3 sm:px-6 py-4 sm:py-5">
 
-        {/* ALL CONTRACTS TABLE VIEW */}
+        {/* ALL CONTRACTS VIEW */}
         {activeTab === "contracts" && view === "all" && (
           <>
             {loading ? (
@@ -2120,11 +2163,12 @@ export default function ClientContractsContent() {
               <div className="flex flex-col items-center justify-center h-48 text-center">
                 <Search className="h-10 w-10 text-orange-300 mb-3" />
                 <p className="font-bold text-gray-800">No contracts found</p>
-                <p className="text-sm text-gray-400 mt-1">You don't have any contracts yet</p>
+                <p className="text-sm text-gray-400 mt-1">{searchQuery ? "No contracts match your search" : "You don't have any contracts yet"}</p>
               </div>
             ) : (
               <>
-                <div className="mb-2 grid grid-cols-[1.7fr_1fr_1.55fr_0.85fr_0.95fr_0.8fr_1.05fr] items-center gap-0 rounded-t-xl border border-b-0 border-gray-100 bg-gray-50 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-500">
+                {/* Desktop table header — hidden below lg */}
+                <div className="hidden lg:grid mb-2 grid-cols-[1.7fr_1fr_1.55fr_0.85fr_0.95fr_0.8fr_1.05fr] items-center gap-0 rounded-t-xl border border-b-0 border-gray-100 bg-gray-50 px-4 py-3 text-[10px] font-black uppercase tracking-wider text-gray-500">
                   <span>Contract</span>
                   <span>Status</span>
                   <span>Milestones</span>
@@ -2133,7 +2177,7 @@ export default function ClientContractsContent() {
                   <span>Progress</span>
                   <span className="text-right">Actions</span>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-3">
                   {visibleContracts.map((contract) => {
                     const statusLabel = getContractDisplayStatus(contract);
                     const progressColor = getProgressColor(contract);
@@ -2141,62 +2185,118 @@ export default function ClientContractsContent() {
                     const totalMs = contract.milestones?.length ?? 0;
                     const perMs = totalMs > 0 ? Math.round((contract.paymentTotalAmountSats ?? 0) / totalMs) : 0;
                     return (
-                      <div key={contract.id} className="grid min-h-[104px] grid-cols-[1.7fr_1fr_1.55fr_0.85fr_0.95fr_0.8fr_1.05fr] items-center gap-0 rounded-xl bg-white border border-gray-100 px-4 py-4 shadow-[0_1px_6px_rgba(15,23,42,0.04)] transition-all hover:border-gray-200 hover:shadow-md">
-                        <div className="flex min-w-0 items-center gap-3 pr-4">
-                          <Avatar name={contract.freelancer} />
-                          <div className="min-w-0">
-                            <p className="truncate text-[13px] font-black leading-snug text-gray-900">{contract.title}</p>
-                            <p className="text-[11px] text-gray-400 truncate">Freelancer: {contract.freelancer}</p>
+                      <div key={contract.id} className="rounded-xl bg-white border border-gray-100 shadow-[0_1px_6px_rgba(15,23,42,0.04)] transition-all hover:border-gray-200 hover:shadow-md overflow-hidden">
+                        {/* ── Mobile card layout (< lg) ── */}
+                        <div className="lg:hidden px-4 py-4 space-y-3">
+                          {/* Header row */}
+                          <div className="flex items-start gap-3">
+                            <Avatar name={contract.freelancer} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[14px] font-black leading-snug text-gray-900 break-words">{contract.title}</p>
+                              <p className="text-[12px] text-gray-400 mt-0.5 truncate">with {contract.freelancer}</p>
+                            </div>
+                            <StatusBadge label={statusLabel} />
+                          </div>
+                          {/* Stats grid */}
+                          <div className="grid grid-cols-2 gap-2 text-[12px]">
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                              <p className="text-[10px] text-gray-400 font-medium">Budget</p>
+                              <p className="font-black text-gray-900">{contract.paymentTotalAmountSats ? `${contract.paymentTotalAmountSats.toLocaleString()} sats` : contract.budget}</p>
+                            </div>
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                              <p className="text-[10px] text-gray-400 font-medium">Due Date</p>
+                              <p className="font-semibold text-gray-900">{contract.dueDate}</p>
+                              {statusLabel !== "Completed" && <p className="text-[10px] text-orange-500 font-bold">{getDueLabel(contract.dueDate)}</p>}
+                            </div>
+                          </div>
+                          {/* Progress */}
+                          <div>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-[11px] font-semibold text-gray-500">Progress</span>
+                              <span className="text-[11px] font-black text-gray-900">{getMilestoneProgressPercent(contract)}%</span>
+                            </div>
+                            <ProgressBar percent={getMilestoneProgressPercent(contract)} color={progressColor} />
+                            {totalMs > 0 && <p className="text-[10px] text-gray-400 mt-0.5">Milestone {Math.min(releasedCount + 1, totalMs)} of {totalMs}</p>}
+                          </div>
+                          {/* Action buttons */}
+                          <div className="flex gap-2 pt-1">
+                            {statusLabel === "Needs Review" && (
+                              <button type="button" onClick={() => { const job = submittedJobs.find((j) => j.contractId === contract.id && j.status === "pending"); if (job) handleApproveSubmission(job.id); }} className="flex-1 rounded-lg bg-gray-900 px-3 py-2.5 text-[12px] font-black text-white hover:bg-gray-800">
+                                Review Submission
+                              </button>
+                            )}
+                            {statusLabel === "Revision Requested" && (
+                              <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-[12px] font-black text-red-600 hover:bg-red-100">
+                                Review Revision
+                              </button>
+                            )}
+                            <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-black text-gray-700 hover:bg-gray-50">
+                              View Details <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
+                              <MessageSquare className="h-4 w-4" />
+                            </button>
                           </div>
                         </div>
-                        <div className="border-l border-gray-100 px-4">
-                          <StatusBadge label={statusLabel} />
-                          {totalMs > 0 && <p className="mt-2 text-[10px] font-bold text-gray-700">Milestone {Math.min(releasedCount + 1, totalMs)} of {totalMs}</p>}
-                          <p className="mt-0.5 text-[10px] text-gray-400">{statusLabel === "Completed" ? `Completed ${contract.dueDate}` : statusLabel === "Needs Review" ? "Submitted for review" : `Started ${contract.startDate}`}</p>
-                        </div>
-                        <div className="border-l border-gray-100 px-4">
-                          <CompactMilestoneList contract={contract} />
-                        </div>
-                        <div className="border-l border-gray-100 px-4">
-                          <p className="font-bold text-[13px] text-gray-900">{contract.paymentTotalAmountSats ? `${contract.paymentTotalAmountSats.toLocaleString()} sats` : contract.budget}</p>
-                          {perMs > 0 && <p className="text-[10px] text-gray-400">{perMs.toLocaleString()} sats<br/>per milestone</p>}
-                        </div>
-                        <div className="border-l border-gray-100 px-4 text-[11px]">
-                          <p className="font-semibold text-gray-700">{contract.startDate} -</p>
-                          <p className="text-gray-500">{contract.dueDate}</p>
-                          {statusLabel !== "Completed" && <p className="mt-1 text-[10px] font-bold text-orange-500">{getDueLabel(contract.dueDate)}</p>}
-                        </div>
-                        <div className="border-l border-gray-100 px-4">
-                          <span className="text-[12px] font-black text-gray-900">{getMilestoneProgressPercent(contract)}%</span>
-                          <ProgressBar percent={getMilestoneProgressPercent(contract)} color={progressColor} />
-                        </div>
-                        <div className="flex flex-wrap items-center justify-end gap-2 border-l border-gray-100 pl-4">
-                          {statusLabel === "Needs Review" && (
-                            <button type="button" onClick={() => { const job = submittedJobs.find((j) => j.contractId === contract.id && j.status === "pending"); if (job) handleApproveSubmission(job.id); }} className="w-full rounded-lg bg-gray-900 px-3 py-2 text-[11px] font-black text-white transition-colors hover:bg-gray-800">
-                              Review Submission
+
+                        {/* ── Desktop table row layout (lg+) ── */}
+                        <div className="hidden lg:grid min-h-[104px] grid-cols-[1.7fr_1fr_1.55fr_0.85fr_0.95fr_0.8fr_1.05fr] items-center gap-0 px-4 py-4">
+                          <div className="flex min-w-0 items-center gap-3 pr-4">
+                            <Avatar name={contract.freelancer} />
+                            <div className="min-w-0">
+                              <p className="truncate text-[13px] font-black leading-snug text-gray-900">{contract.title}</p>
+                              <p className="text-[11px] text-gray-400 truncate">Freelancer: {contract.freelancer}</p>
+                            </div>
+                          </div>
+                          <div className="border-l border-gray-100 px-4">
+                            <StatusBadge label={statusLabel} />
+                            {totalMs > 0 && <p className="mt-2 text-[10px] font-bold text-gray-700">Milestone {Math.min(releasedCount + 1, totalMs)} of {totalMs}</p>}
+                            <p className="mt-0.5 text-[10px] text-gray-400">{statusLabel === "Completed" ? `Completed ${contract.dueDate}` : statusLabel === "Needs Review" ? "Submitted for review" : `Started ${contract.startDate}`}</p>
+                          </div>
+                          <div className="border-l border-gray-100 px-4">
+                            <CompactMilestoneList contract={contract} />
+                          </div>
+                          <div className="border-l border-gray-100 px-4">
+                            <p className="font-bold text-[13px] text-gray-900">{contract.paymentTotalAmountSats ? `${contract.paymentTotalAmountSats.toLocaleString()} sats` : contract.budget}</p>
+                            {perMs > 0 && <p className="text-[10px] text-gray-400">{perMs.toLocaleString()} sats<br/>per milestone</p>}
+                          </div>
+                          <div className="border-l border-gray-100 px-4 text-[11px]">
+                            <p className="font-semibold text-gray-700">{contract.startDate} -</p>
+                            <p className="text-gray-500">{contract.dueDate}</p>
+                            {statusLabel !== "Completed" && <p className="mt-1 text-[10px] font-bold text-orange-500">{getDueLabel(contract.dueDate)}</p>}
+                          </div>
+                          <div className="border-l border-gray-100 px-4">
+                            <span className="text-[12px] font-black text-gray-900">{getMilestoneProgressPercent(contract)}%</span>
+                            <ProgressBar percent={getMilestoneProgressPercent(contract)} color={progressColor} />
+                          </div>
+                          <div className="flex flex-wrap items-center justify-end gap-2 border-l border-gray-100 pl-4">
+                            {statusLabel === "Needs Review" && (
+                              <button type="button" onClick={() => { const job = submittedJobs.find((j) => j.contractId === contract.id && j.status === "pending"); if (job) handleApproveSubmission(job.id); }} className="w-full rounded-lg bg-gray-900 px-3 py-2 text-[11px] font-black text-white transition-colors hover:bg-gray-800">
+                                Review Submission
+                              </button>
+                            )}
+                            {statusLabel === "Revision Requested" && (
+                              <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-black text-red-600 hover:bg-red-100">
+                                Review Revision
+                              </button>
+                            )}
+                            <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex min-w-[116px] items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] font-black text-gray-700 hover:bg-gray-50">
+                              View Details <ChevronRight className="h-3 w-3" />
                             </button>
-                          )}
-                          {statusLabel === "Revision Requested" && (
-                            <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] font-black text-red-600 hover:bg-red-100">
-                              Review Revision
+                            <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:bg-gray-50">
+                              <MessageSquare className="h-3.5 w-3.5" />
                             </button>
-                          )}
-                          <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex min-w-[116px] items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[11px] font-black text-gray-700 hover:bg-gray-50">
-                            View Details <ChevronRight className="h-3 w-3" />
-                          </button>
-                          <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:bg-gray-50">
-                            <MessageSquare className="h-3.5 w-3.5" />
-                          </button>
-                          <button type="button" className="rounded-lg bg-white p-2 text-gray-400 hover:bg-gray-50">
-                            <MoreVertical className="h-3.5 w-3.5" />
-                          </button>
+                            <button type="button" className="rounded-lg bg-white p-2 text-gray-400 hover:bg-gray-50">
+                              <MoreVertical className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
                   })}
-                  <div className="mt-8 rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-4">
+                  <div className="mt-6 rounded-xl border border-blue-100 bg-blue-50/50 px-4 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+                      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
                         <AlertCircle className="h-4 w-4" />
                       </div>
                       <div>
@@ -2206,7 +2306,7 @@ export default function ClientContractsContent() {
                     </div>
                   </div>
                 </div>
-                <p className="mt-4 text-[12px] text-gray-400">Showing 1 to {visibleContracts.length} of {contracts.length} contracts</p>
+                <p className="mt-4 text-[12px] text-gray-400">Showing {visibleContracts.length} of {contracts.length} contracts</p>
               </>
             )}
           </>
@@ -2217,37 +2317,71 @@ export default function ClientContractsContent() {
           <>
             {loading ? (
               <div className="flex items-center justify-center h-40 text-sm text-gray-400">Loading…</div>
-            ) : ongoingContracts.length === 0 ? (
+            ) : visibleContracts.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-center">
                 <CheckCircle2 className="h-10 w-10 text-green-300 mb-3" />
-                <p className="font-bold text-gray-800">No active contracts</p>
-                <p className="text-sm text-gray-400 mt-1">All caught up!</p>
+                <p className="font-bold text-gray-800">{searchQuery ? "No results found" : "No active contracts"}</p>
+                <p className="text-sm text-gray-400 mt-1">{searchQuery ? "Try a different search term" : "All caught up!"}</p>
               </div>
             ) : (
               <>
                 <div className="mb-4 flex items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3 shadow-[0_1px_6px_rgba(15,23,42,0.04)]">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white">
+                    <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
                       <SortDesc className="h-4 w-4" />
                     </div>
                     <div>
-                    <h2 className="font-bold text-gray-900">Active Contracts ({ongoingContracts.length})</h2>
-                    <p className="text-[12px] text-gray-400">Projects currently in progress.</p>
+                      <h2 className="font-bold text-gray-900">Active Contracts ({visibleContracts.length})</h2>
+                      <p className="text-[12px] text-gray-400">Projects currently in progress.</p>
                     </div>
                   </div>
-                  <button type="button" className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-[12px] font-medium text-gray-600 hover:bg-gray-50">
-                    <SortDesc className="h-3.5 w-3.5" /> Newest First
-                  </button>
                 </div>
                 <div className="space-y-3">
-                  {ongoingContracts.map((contract) => {
+                  {visibleContracts.map((contract) => {
                     const totalMs = contract.milestones?.length ?? 0;
                     const perMs = totalMs > 0 ? Math.round((contract.paymentTotalAmountSats ?? 0) / totalMs) : 0;
                     return (
-                      <div key={contract.id} className="rounded-xl bg-white border border-gray-100 px-5 py-4 shadow-[0_1px_8px_rgba(15,23,42,0.05)] transition-all hover:border-gray-200 hover:shadow-md">
-                        <div className="grid grid-cols-[1.25fr_1.8fr_0.65fr_0.75fr_0.75fr] items-center gap-5">
+                      <div key={contract.id} className="rounded-xl bg-white border border-gray-100 shadow-[0_1px_8px_rgba(15,23,42,0.05)] transition-all hover:border-gray-200 hover:shadow-md overflow-hidden">
+                        {/* Mobile card (< lg) */}
+                        <div className="lg:hidden px-4 py-4 space-y-3">
+                          <div className="flex items-start gap-3">
+                            <Avatar name={contract.freelancer} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[14px] font-black leading-snug text-gray-900 break-words">{contract.title}</p>
+                              <p className="text-[12px] text-gray-400 mt-0.5 truncate">with {contract.freelancer}</p>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                <StatusBadge label="In Progress" />
+                                <span className="text-[10px] font-semibold text-gray-500">Started {contract.startDate}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <MilestoneTimeline contract={contract} />
+                          <div className="grid grid-cols-2 gap-2 text-[12px]">
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                              <p className="text-[10px] text-gray-400 font-medium">Budget</p>
+                              <p className="font-black text-gray-900">{contract.paymentTotalAmountSats ? `${contract.paymentTotalAmountSats.toLocaleString()} sats` : contract.budget}</p>
+                              {perMs > 0 && <p className="text-[10px] text-gray-400">{perMs.toLocaleString()} sats/milestone</p>}
+                            </div>
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                              <p className="text-[10px] text-gray-400 font-medium">Due</p>
+                              <p className="font-semibold text-gray-900">{contract.dueDate}</p>
+                              <p className="text-[10px] text-orange-500 font-bold">{getDueLabel(contract.dueDate)}</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-black text-gray-700 hover:bg-gray-50">
+                              View Details <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
+                              <MessageSquare className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Desktop layout (lg+) */}
+                        <div className="hidden lg:grid grid-cols-[1.25fr_1.8fr_0.65fr_0.75fr_0.75fr] items-center gap-5 px-5 py-4">
                           <div className="flex min-w-0 items-center gap-4 border-r border-gray-100 pr-4">
-                          <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} />
                             <div className="min-w-0">
                               <p className="truncate text-[14px] font-black leading-snug text-gray-900">{contract.title}</p>
                               <p className="mt-0.5 truncate text-[11px] text-gray-400">Freelancer: {contract.freelancer}</p>
@@ -2277,9 +2411,6 @@ export default function ClientContractsContent() {
                             </button>
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" className="flex items-center justify-center rounded-lg bg-white px-3 py-1 text-gray-400 hover:bg-gray-50">
-                              <MoreVertical className="h-3.5 w-3.5" />
                             </button>
                           </div>
                         </div>
@@ -2318,7 +2449,7 @@ export default function ClientContractsContent() {
                     const totalMs = contract?.milestones?.length ?? contract?.paymentInstallments ?? 0;
                     const currentMilestone = job.milestoneIndex ?? Math.min(releasedCount + 1, totalMs || releasedCount + 1);
                     const progress = totalMs > 0 ? Math.round((currentMilestone / totalMs) * 100) : contract?.progress ?? 0;
-                    const jobStatusLabel = job.status === "approved" ? "Approved" : job.status === "rejected" ? "Changes requested" : "Awaiting your review";
+                    const jobStatusLabel = job.status === "approved" ? "Approved" : job.status === "rejected" ? "Return for adjustment" : "Awaiting review";
                     const jobStatusColor = job.status === "approved" ? "text-green-600" : job.status === "rejected" ? "text-red-600" : "text-orange-600";
                     return (
                       <button key={job.id} type="button" onClick={() => { setSelectedSubmissionId(job.id); if (typeof window !== "undefined" && window.innerWidth < 1280) setIsSubmissionModalOpen(true); }}
@@ -2370,7 +2501,7 @@ export default function ClientContractsContent() {
                   const releasedCount = contract.paymentReleasedInstallments ?? 0;
                   const currentMilestone = job.milestoneIndex ?? Math.min(releasedCount + 1, totalMs || releasedCount + 1);
                   const reviewProgress = totalMs > 0 ? Math.round((currentMilestone / totalMs) * 100) : contract.progress;
-                  const detailStatusLabel = job.status === "approved" ? "Approved" : job.status === "rejected" ? "Changes Requested" : "Awaiting Review";
+                  const detailStatusLabel = job.status === "approved" ? "Approved" : job.status === "rejected" ? "Return for adjustment" : "Awaiting review";
                   return (
                     <div ref={reviewDetailRef} className="hidden overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_1px_10px_rgba(15,23,42,0.05)] xl:block">
                       <div className="px-6 py-5 border-b border-gray-100">
@@ -2476,35 +2607,68 @@ export default function ClientContractsContent() {
         {/* COMPLETED CONTRACTS */}
         {activeTab === "contracts" && view === "finished" && (
           <>
-            {finishedContracts.length === 0 ? (
+            {visibleContracts.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-48 text-center">
                 <CheckCircle2 className="h-10 w-10 text-green-300 mb-3" />
-                <p className="font-bold text-gray-800">No completed contracts</p>
-                <p className="text-sm text-gray-400 mt-1">Completed projects will appear here</p>
+                <p className="font-bold text-gray-800">{searchQuery ? "No results found" : "No completed contracts"}</p>
+                <p className="text-sm text-gray-400 mt-1">{searchQuery ? "Try a different search term" : "Completed projects will appear here"}</p>
               </div>
             ) : (
               <>
-                <div className="mb-4 flex items-center justify-between rounded-2xl border border-green-100 bg-green-50/40 px-4 py-3.5 shadow-[0_1px_10px_rgba(15,23,42,0.04)]">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-green-500 text-white">
-                      <CheckCircle2 className="h-5 w-5" />
-                    </div>
-                    <div>
-                      <h2 className="font-black text-gray-900">Completed Contracts ({finishedContracts.length})</h2>
-                      <p className="text-[12px] text-gray-400">Successfully completed projects.</p>
-                    </div>
+                <div className="mb-4 flex items-center gap-3 rounded-2xl border border-green-100 bg-green-50/40 px-4 py-3.5 shadow-[0_1px_10px_rgba(15,23,42,0.04)]">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-green-500 text-white">
+                    <CheckCircle2 className="h-5 w-5" />
                   </div>
-                  <button type="button" className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-4 py-2 text-[12px] font-bold text-gray-700 shadow-sm hover:bg-gray-50">
-                    <SortDesc className="h-3.5 w-3.5" /> Newest First
-                  </button>
+                  <div>
+                    <h2 className="font-black text-gray-900">Completed Contracts ({visibleContracts.length})</h2>
+                    <p className="text-[12px] text-gray-400">Successfully completed projects.</p>
+                  </div>
                 </div>
                 <div className="space-y-3">
-                  {finishedContracts.map((contract) => {
+                  {visibleContracts.map((contract) => {
                     const total = contract.paymentTotalAmountSats ?? 0;
                     const totalMs = contract.milestones?.length || contract.paymentInstallments || 0;
                     return (
-                      <div key={contract.id} className="rounded-2xl border border-l-4 border-gray-100 border-l-green-500 bg-white px-5 py-4 shadow-[0_1px_10px_rgba(15,23,42,0.05)] transition-all hover:border-gray-200 hover:border-l-green-500 hover:shadow-md">
-                        <div className="grid min-h-[116px] grid-cols-[1.45fr_1.05fr_1.35fr_0.85fr] items-center gap-5">
+                      <div key={contract.id} className="rounded-2xl border border-l-4 border-gray-100 border-l-green-500 bg-white shadow-[0_1px_10px_rgba(15,23,42,0.05)] transition-all hover:shadow-md overflow-hidden">
+                        {/* Mobile card (< lg) */}
+                        <div className="lg:hidden px-4 py-4 space-y-3">
+                          <div className="flex items-start gap-3">
+                            <Avatar name={contract.freelancer} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[14px] font-black leading-snug text-gray-900 break-words">{contract.title}</p>
+                              <p className="text-[12px] text-gray-400 mt-0.5 truncate">with {contract.freelancer}</p>
+                              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                <StatusBadge label="Completed" />
+                                <span className="text-[10px] font-semibold text-gray-500">{contract.startDate} – {contract.dueDate}</span>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[12px]">
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                              <p className="text-[10px] text-gray-400 font-medium">Total Budget</p>
+                              <p className="font-black text-gray-900">{total > 0 ? `${total.toLocaleString()} sats` : contract.budget}</p>
+                            </div>
+                            <div className="rounded-lg bg-gray-50 px-3 py-2">
+                              <p className="text-[10px] text-gray-400 font-medium">Milestones</p>
+                              <div className="flex items-center gap-1">
+                                <CheckCircle2 className="h-3 w-3 text-green-500" />
+                                <span className="font-bold text-gray-900">{totalMs}/{totalMs} done</span>
+                              </div>
+                            </div>
+                          </div>
+                          <ProgressBar percent={100} color="green" />
+                          <div className="flex gap-2">
+                            <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-black text-gray-700 hover:bg-gray-50">
+                              View Contract <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                            <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
+                              <MessageSquare className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Desktop layout (lg+) */}
+                        <div className="hidden lg:grid min-h-[116px] grid-cols-[1.45fr_1.05fr_1.35fr_0.85fr] items-center gap-5 px-5 py-4">
                           <div className="flex min-w-0 items-center gap-4 border-r border-gray-100 pr-4">
                             <Avatar name={contract.freelancer} />
                             <div className="min-w-0">
@@ -2532,7 +2696,7 @@ export default function ClientContractsContent() {
                             <p className="mb-1 text-[11px] font-bold text-gray-700">Milestones</p>
                             <div className="flex items-center gap-1 mb-1">
                               <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                              <span className="text-[12px] font-semibold text-gray-700">{totalMs} / {totalMs} Milestones Completed</span>
+                              <span className="text-[12px] font-semibold text-gray-700">{totalMs} / {totalMs} Completed</span>
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="flex-1"><ProgressBar percent={100} color="green" /></div>
