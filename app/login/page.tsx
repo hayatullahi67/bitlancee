@@ -140,7 +140,7 @@ export default function LoginPage() {
                     <svg className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#C8A87A]" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
                     </svg>
-                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="mcfloydvictoria@gmail.com"
+                    <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Enter Your Email"
                       className="w-full pl-9 pr-4 py-3 rounded-[10px] bg-white border border-[#E0DBD4] text-[13px] text-[#1a1a1a] placeholder-[#C8A87A] focus:outline-none focus:border-[#F7931A] transition-colors" />
                   </div>
                 </div>
