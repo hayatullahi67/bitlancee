@@ -1,11 +1,9 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-});
+const inter = {
+  variable: "font-inter",
+};
 
 export const metadata: Metadata = {
   title: "Bitlance - Bitcoin Freelancing Platform",

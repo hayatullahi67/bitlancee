@@ -6,8 +6,8 @@ import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { Loader2 } from "lucide-react";
-import { LightningConnect, useWalletConnect, type Connection } from "lightningconnect";
-import { getAddressFromConnection, useLightningTheme } from "@/components/organisms/LightningAddressModal";
+// Removed direct LightningConnect imports; using LightningWalletButton component for wallet handling
+import { getAddressFromConnection, useLightningTheme, LightningWalletButton } from "@/components/organisms/LightningAddressModal";
 import Image from "next/image";
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
@@ -128,16 +128,27 @@ export default function FreelancerOnboardingPage() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [avatarPublicId, setAvatarPublicId] = useState("");
 
-  // Step 6 — Lightning wallet
-  const [lightningConnection, setLightningConnection] = useState<Connection | null>(null);
-  const { connect: connectWallet, isConnected: walletConnected, walletInfo: walletConnectedInfo, connectionType: walletConnectionType } = useWalletConnect();
-  const { isDark: walletIsDark, theme: walletTheme, toggle: toggleWalletTheme } = useLightningTheme();
+  const [lightningAddress, setLightningAddress] = useState("");
+  const [lightningConnectorType, setLightningConnectorType] = useState("");
 
+  // Lightning wallet UI and handling via LightningWalletButton component
+  const { isDark: walletIsDark, theme: walletTheme, toggle: toggleWalletTheme } = useLightningTheme();  // Clear any persisted LightningConnect data on first load to prevent stale address pre-filling
   useEffect(() => {
-    if (!walletConnected || !walletConnectedInfo) return;
-    const fakeConn = { type: walletConnectionType, address: walletConnectedInfo.address } as any;
-    setLightningConnection(fakeConn);
-  }, [walletConnected, walletConnectedInfo?.address]);
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('lightningconnect')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (e) {
+      console.error('Failed to clear LightningConnect storage:', e);
+    }
+  }, []);
+
+  const handleLightningModalSave = (address: string, connectorType: string) => {
+    setLightningAddress(address);
+    setLightningConnectorType(connectorType);
+  };
 
   useEffect(() => {
     const unsub = onAuthStateChanged(firebaseAuth, async (user) => {
@@ -180,24 +191,26 @@ export default function FreelancerOnboardingPage() {
     if (!uid) return;
     setSaving(true);
     try {
-      const fields = {
-        title, category, skills, experienceLevel, bio, hourlyRate, location, availability, responseTime,
-        ...(avatarUrl ? { avatarUrl, avatarPublicId } : {}),
-        ...(lightningConnection
-          ? { lightningAddress: getAddressFromConnection(lightningConnection), lightningConnectorType: lightningConnection.type }
-          : {}),
-        onboardingComplete: true,
-        updatedAt: serverTimestamp(),
-      };
+        const fields = {
+          title, category, skills, experienceLevel, bio, hourlyRate, location, availability, responseTime,
+          ...(avatarUrl ? { avatarUrl, avatarPublicId } : {}),
+          // Store address at top level (legacy)
+          ...(lightningAddress ? { lightningAddress, lightningConnectorType } : {}),
+          // Also store inside nested settings.payment for settings page & contracts
+          ...(lightningAddress ? { settings: { payment: { lightningAddress, lightningConnectorType } } } : {}),
+          onboardingComplete: true,
+          updatedAt: serverTimestamp(),
+        };
       await updateDoc(doc(firebaseDb, "freelancers", uid), fields);
-      await updateDoc(doc(firebaseDb, "all_users", uid), {
-        ...(avatarUrl ? { avatarUrl, avatarPublicId } : {}),
-        ...(lightningConnection
-          ? { lightningAddress: getAddressFromConnection(lightningConnection), lightningConnectorType: lightningConnection.type }
-          : {}),
-        onboardingComplete: true,
-        updatedAt: serverTimestamp(),
-      });
+        await updateDoc(doc(firebaseDb, "all_users", uid), {
+          ...(avatarUrl ? { avatarUrl, avatarPublicId } : {}),
+          // Store top‑level legacy fields
+          ...(lightningAddress ? { lightningAddress, lightningConnectorType } : {}),
+          // Also store nested settings.payment
+          ...(lightningAddress ? { settings: { payment: { lightningAddress, lightningConnectorType } } } : {}),
+          onboardingComplete: true,
+          updatedAt: serverTimestamp(),
+        });
       router.push("/freelancer/dashboard");
     } catch (err) { console.error("Failed to save onboarding:", err); setSaving(false); }
   };
@@ -227,7 +240,6 @@ export default function FreelancerOnboardingPage() {
 
   return (
     <div className="min-h-screen bg-[#F5F0EA] flex flex-col items-center justify-center px-4 py-10">
-      {/* Logo */}
       <div className="flex items-center gap-3 mb-5">
         <div className="w-10 h-10 overflow-hidden rounded-[12px] bg-[#F7931A] flex items-center justify-center shadow-md shadow-orange-200/60 flex-shrink-0">
           <Image src="/assets/logo.png" alt="Bitlance Logo" width={30} height={30} className="object-contain" />
@@ -235,9 +247,7 @@ export default function FreelancerOnboardingPage() {
         <p className="text-[17px] font-bold tracking-tight text-[#1a1a1a] leading-none">Bitlance</p>
       </div>
 
-      {/* Card */}
       <div className="w-full max-w-[720px] bg-white rounded-[20px] shadow-[0_4px_24px_rgba(0,0,0,0.07)] border border-[#E8E2D9] overflow-hidden">
-        {/* Orange accent bar */}
         <div className="h-1 bg-[#EEE9E2] w-full">
           <div
             className="h-full bg-[#F7931A] transition-all duration-500"
@@ -246,10 +256,6 @@ export default function FreelancerOnboardingPage() {
         </div>
 
         <div className="px-8 pt-6 pb-8">
-        </div>
-
-        <div className="px-8 pt-6 pb-8">
-          {/* Step indicator row */}
           <div className="flex items-center justify-between mb-5">
             <span className="text-[12px] font-bold uppercase tracking-[0.14em] text-[#F7931A]">
               Step {step} of {TOTAL_STEPS}
@@ -261,7 +267,6 @@ export default function FreelancerOnboardingPage() {
             )}
           </div>
 
-          {/* Headline */}
           <h2 className="text-[19px] font-black text-[#1a1a1a] leading-tight mb-1">
             {stepTitles[step].headline}{" "}
             <svg width="24" height="24" viewBox="0 0 24 24" fill="#F7931A" style={{ display: "inline", verticalAlign: "middle", marginLeft: 2 }}>
@@ -270,7 +275,6 @@ export default function FreelancerOnboardingPage() {
           </h2>
           <p className="text-[13px] text-[#888] mb-7 leading-[1.6]">{stepTitles[step].subtitle}</p>
 
-        {/* Step 1 — Expertise */}
         {step === 1 && (
           <div>
             <div className="mb-6">
@@ -344,7 +348,6 @@ export default function FreelancerOnboardingPage() {
           </div>
         )}
 
-        {/* Step 2 — Skills */}
         {step === 2 && (
           <div>
             <div className="flex gap-2 mb-4">
@@ -394,7 +397,6 @@ export default function FreelancerOnboardingPage() {
           </div>
         )}
 
-        {/* Step 3 — Experience */}
         {step === 3 && (
           <div className="flex flex-col gap-3">
             {EXPERIENCE_LEVELS.map((level) => (
@@ -418,7 +420,6 @@ export default function FreelancerOnboardingPage() {
           </div>
         )}
 
-        {/* Step 4 — Bio + Rate */}
         {step === 4 && (
           <div>
             <div className="mb-5">
@@ -449,7 +450,6 @@ export default function FreelancerOnboardingPage() {
           </div>
         )}
 
-        {/* Step 5 — Location + Availability */}
         {step === 5 && (
           <div>
             <div className="mb-5">
@@ -503,54 +503,18 @@ export default function FreelancerOnboardingPage() {
           </div>
         )}
 
-        {/* Step 6 — Connect Wallet */}
         {step === 6 && (
-          <div>
-            <LightningConnect theme={walletTheme} />
-
-            {lightningConnection ? (
-              <div className="flex flex-col items-center gap-4 mt-4">
-                <div className="flex items-center gap-2 text-[13px] font-semibold text-[#2E7D32]">
-                  <CheckCircleIcon size={18} color="#2E7D32" />
-                  Wallet connected: {getAddressFromConnection(lightningConnection)}
-                </div>
-                <div className="flex items-center gap-3">
-                  <button type="button" onClick={connectWallet} className="text-[11px] font-semibold text-[#F7931A] hover:underline">
-                    Change wallet
-                  </button>
-                  <button
-                    type="button"
-                    onClick={toggleWalletTheme}
-                    title={walletIsDark ? "Switch to light mode" : "Switch to dark mode"}
-                    className="w-7 h-7 rounded-full border border-[#EAE7E2] bg-white flex items-center justify-center text-[#888] hover:border-[#F7931A] hover:text-[#F7931A] transition-all"
-                  >
-                    {walletIsDark ? <SunIcon /> : <MoonIcon />}
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center gap-2 mt-4">
-                <button
-                  type="button"
-                  onClick={connectWallet}
-                  className="flex items-center gap-2 px-6 py-3 rounded-full bg-[#F7931A] hover:bg-[#e0840f] text-white text-[13px] font-black transition-all"
-                >
-                  <span>⚡</span> Connect Wallet
-                </button>
-                <button
-                  type="button"
-                  onClick={toggleWalletTheme}
-                  title={walletIsDark ? "Switch to light mode" : "Switch to dark mode"}
-                  className="w-10 h-10 rounded-full border border-[#EAE7E2] bg-white flex items-center justify-center text-[#888] hover:border-[#F7931A] hover:text-[#F7931A] transition-all"
-                >
-                  {walletIsDark ? <SunIcon /> : <MoonIcon />}
-                </button>
-              </div>
-            )}
+          <div className="flex flex-col items-center gap-4 mt-4">
+            <LightningWalletButton
+              uid={uid!}
+              collection="freelancers"
+              lightningAddress={lightningAddress}
+              lightningConnectorType={lightningConnectorType}
+              onSaved={handleLightningModalSave}
+            />
           </div>
         )}
 
-        {/* Step 7 — Photo */}
         {step === 7 && (
           <div>
             <div className="flex flex-col items-center gap-5">
