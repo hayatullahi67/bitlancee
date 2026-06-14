@@ -7,7 +7,7 @@ import { doc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { Loader2 } from "lucide-react";
 import { LightningConnect, useWalletConnect, type Connection } from "lightningconnect";
-import { getAddressFromConnection, useLightningTheme } from "@/components/organisms/LightningAddressModal";
+import { getAddressFromConnection, useLightningTheme, DARK_THEME, LIGHT_THEME } from "@/components/organisms/LightningAddressModal";
 import Image from "next/image";
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
@@ -112,7 +112,7 @@ export default function ClientOnboardingPage() {
   // Step 4 — Lightning wallet
   const [lightningConnection, setLightningConnection] = useState<Connection | null>(null);
   const { connect: connectWallet, isConnected: walletConnected, walletInfo: walletConnectedInfo, connectionType: walletConnectionType } = useWalletConnect();
-  const { isDark: walletIsDark, theme: walletTheme, toggle: toggleWalletTheme } = useLightningTheme();
+  const { isDark: walletIsDark, mode: walletMode, toggle: toggleWalletTheme } = useLightningTheme();
 
   useEffect(() => {
     if (!walletConnected || !walletConnectedInfo) return;
@@ -374,7 +374,11 @@ export default function ClientOnboardingPage() {
         {/* Step 4 — Connect Wallet */}
         {step === 4 && (
           <div>
-            <LightningConnect theme={walletTheme} />
+            <LightningConnect 
+              theme={DARK_THEME} 
+              lightTheme={LIGHT_THEME} 
+              defaultMode={walletMode} 
+            />
 
             {lightningConnection ? (
               <div className="flex flex-col items-center gap-4 mt-4">

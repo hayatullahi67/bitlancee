@@ -6,7 +6,7 @@ import { firebaseDb } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 // ─── Theme definitions ────────────────────────────────────────────────────────
-const DARK_THEME = {
+export const DARK_THEME = {
   primary: "#F7931A",
   background: "#0A0A0A",
   foreground: "#F5F5F5",
@@ -15,7 +15,7 @@ const DARK_THEME = {
   muted: "#A1A1AA",
 };
 
-const LIGHT_THEME = {
+export const LIGHT_THEME = {
   primary: "#F7931A",
   background: "#FFFFFF",
   foreground: "#1a1a1a",
