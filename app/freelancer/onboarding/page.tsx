@@ -132,7 +132,6 @@ export default function FreelancerOnboardingPage() {
   const [lightningConnectorType, setLightningConnectorType] = useState("");
 
   // Lightning wallet UI and handling via LightningWalletButton component
-  const { isDark: walletIsDark, theme: walletTheme, toggle: toggleWalletTheme } = useLightningTheme();  // Clear any persisted LightningConnect data on first load to prevent stale address pre-filling
   useEffect(() => {
     try {
       Object.keys(localStorage).forEach((key) => {
@@ -586,4 +585,3 @@ export default function FreelancerOnboardingPage() {
     </div>
   );
 }
-
