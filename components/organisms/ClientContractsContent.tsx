@@ -75,6 +75,7 @@ type Contract = {
   }>;
   createdAt?: any;
   updatedAt?: any;
+  companyLogo?: string;
 };
 
 type SubmittedJob = {
@@ -154,11 +155,20 @@ const getAvatarColor = (name: string) => AVATAR_COLORS[(name?.charCodeAt(0) ?? 0
 const getInitials = (name: string) =>
   (name ?? "F").split(" ").filter(Boolean).slice(0, 2).map((p: string) => p[0]?.toUpperCase()).join("");
 
-function Avatar({ name, size = "md" }: { name: string; size?: "sm" | "md" | "lg" }) {
+function Avatar({ name, size = "md", imageUrl }: { name: string; size?: "sm" | "md" | "lg"; imageUrl?: string }) {
   const sizeClass = size === "sm" ? "h-8 w-8 text-[11px]" : size === "lg" ? "h-11 w-11 text-[14px]" : "h-9 w-9 text-[12px]";
+  const [imgError, setImgError] = useState(false);
+
   return (
-    <div className={`flex-shrink-0 flex items-center justify-center rounded-full font-black text-white ${sizeClass} ${getAvatarColor(name)}`}>
-      {getInitials(name)}
+    <div className={`flex-shrink-0 flex items-center justify-center rounded-full font-black text-white overflow-hidden ${sizeClass} ${getAvatarColor(name)}`}>
+      {imageUrl && !imgError ? (
+        <img 
+          src={imageUrl} 
+          alt={name} 
+          className="h-full w-full object-cover" 
+          onError={() => setImgError(true)} 
+        />
+      ) : getInitials(name)}
     </div>
   );
 }
@@ -361,6 +371,7 @@ export default function ClientContractsContent() {
 
   const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
   const freelancerNameCache = useRef<Record<string, string>>({});
+  const companyLogoCache = useRef<Record<string, string>>({});
 
   const resolveFreelancerName = async (freelancerId: string, fallbackName: string) => {
     const initialFallback = fallbackName?.trim() || "";
@@ -454,7 +465,24 @@ export default function ClientContractsContent() {
             };
           });
           (async () => {
-            const hydrated = await Promise.all(items.map(async (c) => ({ ...c, freelancer: await resolveFreelancerName(c.freelancerId ?? "", c.freelancer ?? "") })));
+            const hydrated = await Promise.all(items.map(async (c) => {
+              const freelancer = await resolveFreelancerName(c.freelancerId ?? "", c.freelancer ?? "");
+              let companyLogo = "";
+              if (c.jobId) {
+                if (companyLogoCache.current[c.jobId]) {
+                  companyLogo = companyLogoCache.current[c.jobId];
+                } else {
+                  try {
+                    const jobSnap = await getDoc(doc(firebaseDb, "jobs", c.jobId));
+                    if (jobSnap.exists()) {
+                      companyLogo = (jobSnap.data() as any).companyLogo || "";
+                      companyLogoCache.current[c.jobId] = companyLogo;
+                    }
+                  } catch {}
+                }
+              }
+              return { ...c, freelancer, companyLogo };
+            }));
             hydrated.sort((a, b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
             setContracts(hydrated);
             setLoading(false);
@@ -919,7 +947,7 @@ export default function ClientContractsContent() {
                         <div className="lg:hidden px-4 py-4 space-y-3">
                           {/* Header row */}
                           <div className="flex items-start gap-3">
-                            <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} imageUrl={contract.companyLogo} />
                             <div className="flex-1 min-w-0">
                               <p className="text-[14px] font-black leading-snug text-gray-900 break-words">{contract.title}</p>
                               <p className="text-[12px] text-gray-400 mt-0.5 truncate">with {contract.freelancer}</p>
@@ -973,7 +1001,7 @@ export default function ClientContractsContent() {
                         {/* ── Desktop table row layout (lg+) ── */}
                         <div className="hidden lg:grid min-h-[104px] grid-cols-[1.7fr_1fr_1.55fr_0.85fr_0.95fr_0.8fr_1.05fr] items-center gap-0 px-4 py-4">
                           <div className="flex min-w-0 items-center gap-3 pr-4">
-                            <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} imageUrl={contract.companyLogo} />
                             <div className="min-w-0">
                               <p className="truncate text-[13px] font-black leading-snug text-gray-900">{contract.title}</p>
                               <p className="text-[11px] text-gray-400 truncate">Freelancer: {contract.freelancer}</p>
@@ -1076,7 +1104,7 @@ export default function ClientContractsContent() {
                         {/* Mobile card (< lg) */}
                         <div className="lg:hidden px-4 py-4 space-y-3">
                           <div className="flex items-start gap-3">
-                            <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} imageUrl={contract.companyLogo} />
                             <div className="flex-1 min-w-0">
                               <p className="text-[14px] font-black leading-snug text-gray-900 break-words">{contract.title}</p>
                               <p className="text-[12px] text-gray-400 mt-0.5 truncate">with {contract.freelancer}</p>
@@ -1112,7 +1140,7 @@ export default function ClientContractsContent() {
                         {/* Desktop layout (lg+) */}
                         <div className="hidden lg:grid grid-cols-[1.25fr_1.8fr_0.65fr_0.75fr_0.75fr] items-center gap-5 px-5 py-4">
                           <div className="flex min-w-0 items-center gap-4 border-r border-gray-100 pr-4">
-                            <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} imageUrl={contract.companyLogo} />
                             <div className="min-w-0">
                               <p className="truncate text-[14px] font-black leading-snug text-gray-900">{contract.title}</p>
                               <p className="mt-0.5 truncate text-[11px] text-gray-400">Freelancer: {contract.freelancer}</p>
@@ -1186,7 +1214,7 @@ export default function ClientContractsContent() {
                         <button key={job.id} type="button" onClick={() => { setSelectedSubmissionId(job.id); if (typeof window !== "undefined" && window.innerWidth < 1280) setIsSubmissionModalOpen(true); }}
                           className={`w-full max-w-full min-w-0 rounded-xl border px-4 py-4 text-left shadow-[0_1px_8px_rgba(15,23,42,0.04)] transition-all ${isSelected ? "border-orange-300 bg-orange-50/70 ring-1 ring-orange-200" : "border-gray-100 bg-white hover:border-gray-200 hover:shadow-md"}`}>
                           <div className="flex items-start gap-3">
-                            <Avatar name={contract?.freelancer ?? "F"} size="sm" />
+                            <Avatar name={contract?.freelancer ?? "F"} size="sm" imageUrl={contract?.companyLogo} />
                             <div className="flex-1 min-w-0">
                               <div className="flex items-start justify-between gap-2">
                                 <p className="truncate text-[13px] font-black leading-snug text-gray-900">{contract?.title ?? "Contract"}</p>
@@ -1237,7 +1265,7 @@ export default function ClientContractsContent() {
                     <div ref={reviewDetailRef} className="hidden overflow-hidden rounded-xl border border-gray-100 bg-white shadow-[0_1px_10px_rgba(15,23,42,0.05)] xl:block">
                       <div className="px-6 py-5 border-b border-gray-100">
                         <div className="flex items-start gap-4">
-                          <Avatar name={contract.freelancer} size="lg" />
+                          <Avatar name={contract.freelancer} size="lg" imageUrl={contract.companyLogo} />
                           <div className="flex-1 min-w-0">
                             <h2 className="text-[18px] font-black text-gray-900">{contract.title}</h2>
                             <p className="text-[12px] text-gray-400 mt-0.5">Freelancer: {contract.freelancer}</p>
@@ -1364,7 +1392,7 @@ export default function ClientContractsContent() {
                         {/* Mobile card (< lg) */}
                         <div className="lg:hidden px-4 py-4 space-y-3">
                           <div className="flex items-start gap-3">
-                            <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} imageUrl={contract.companyLogo} />
                             <div className="flex-1 min-w-0">
                               <p className="text-[14px] font-black leading-snug text-gray-900 break-words">{contract.title}</p>
                               <p className="text-[12px] text-gray-400 mt-0.5 truncate">with {contract.freelancer}</p>
@@ -1401,7 +1429,7 @@ export default function ClientContractsContent() {
                         {/* Desktop layout (lg+) */}
                         <div className="hidden lg:grid min-h-[116px] grid-cols-[1.45fr_1.05fr_1.35fr_0.85fr] items-center gap-5 px-5 py-4">
                           <div className="flex min-w-0 items-center gap-4 border-r border-gray-100 pr-4">
-                            <Avatar name={contract.freelancer} />
+                            <Avatar name={contract.freelancer} imageUrl={contract.companyLogo} />
                             <div className="min-w-0">
                               <p className="truncate text-[14px] font-black leading-snug text-gray-900">{contract.title}</p>
                               <p className="mt-0.5 truncate text-[11px] text-gray-400">Freelancer: {contract.freelancer}</p>
@@ -1470,7 +1498,7 @@ export default function ClientContractsContent() {
               </div>
               <h2 className="text-[22px] font-black text-gray-900 leading-tight">{selectedContract.title}</h2>
               <div className="flex items-center gap-2 mt-1.5">
-                <Avatar name={selectedContract.freelancer} size="sm" />
+                <Avatar name={selectedContract.freelancer} size="sm" imageUrl={selectedContract.companyLogo} />
                 <span className="text-[13px] text-gray-500">Freelancer: <strong className="text-gray-800">{selectedContract.freelancer}</strong></span>
               </div>
             </div>
