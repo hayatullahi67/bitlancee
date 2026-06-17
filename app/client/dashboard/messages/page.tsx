@@ -12,7 +12,9 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
   increment,
+  limit,
   onSnapshot,
   orderBy,
   query,
@@ -54,6 +56,39 @@ interface ChatMessage {
     resourceType?: string;
   };
 }
+
+type SubmittedJob = {
+  id: string;
+  contractId: string;
+  description: string;
+  link?: string;
+  attachment?: { name?: string; url?: string } | null;
+  submittedAt: Date;
+  status: "pending" | "approved" | "rejected";
+  revisionMessage?: string;
+  milestoneIndex?: number;
+  milestoneTitle?: string;
+};
+
+type ContractPreview = {
+  id: string;
+  title?: string;
+  description?: string;
+  workStatus?: "not_started" | "in_progress" | "submitted" | "changes_requested" | "approved" | "completed";
+  paymentStatus?: "unfunded" | "invoice_created" | "funded" | "released" | "disputed" | "expired";
+  paymentInstallments?: number;
+  paymentCurrentInstallment?: number;
+  paymentTotalAmountSats?: number;
+  paymentTotalChargedSats?: number;
+  freelancerId?: string;
+  freelancerName?: string;
+  submissionMessage?: string;
+  submissionLink?: string;
+  submissionAttachment?: {
+    name?: string;
+    url?: string;
+  } | null;
+};
 
 type FundingMode = "full" | "per_milestone";
 
@@ -227,12 +262,38 @@ const buildMilestones = (jobAmount: number, totalClientPayable: number, count: n
     };
   });
 
+const getContractId = (conversation: Conversation) =>
+  conversation.jobId && conversation.freelancerId
+    ? `${conversation.jobId}_${conversation.freelancerId}`
+    : conversation.id;
+
+const createConversationId = (jobId: string, freelancerId: string) => `${jobId}_${freelancerId}`;
+
+const getConversationForContract = async (jobId: string, freelancerId: string) => {
+  if (!jobId || !freelancerId) return null;
+  const q = query(
+    collection(firebaseDb, "conversations"),
+    where("jobId", "==", jobId),
+    where("freelancerId", "==", freelancerId),
+    limit(1)
+  );
+  const snap = await getDocs(q);
+  return snap.empty ? null : snap.docs[0];
+};
+
 export default function ClientMessagesPage() {
   const searchParams = useSearchParams();
   const [selectedChat, setSelectedChat] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [pendingSubmissionJob, setPendingSubmissionJob] = useState<SubmittedJob | null>(null);
+  const [contractModalContractId, setContractModalContractId] = useState<string | null>(null);
+  const [contractModalContract, setContractModalContract] = useState<ContractPreview | null>(null);
+  const [contractModalLoading, setContractModalLoading] = useState(false);
+  const [contractModalError, setContractModalError] = useState<string>("");
+  const [, setApprovalErrorMessage] = useState<string>("");
+  const [, setIsApprovingSubmission] = useState(false);
   const [presenceMap, setPresenceMap] = useState<Record<string, boolean>>({});
   const presenceUnsubs = useRef<Record<string, () => void>>({});
 
@@ -247,6 +308,57 @@ export default function ClientMessagesPage() {
     }
     return `${size.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
   };
+
+  const handleOpenContractModal = (contractId: string) => {
+    setContractModalContractId(contractId);
+  };
+
+  const closeContractModal = () => {
+    setContractModalContractId(null);
+  };
+
+  useEffect(() => {
+    if (!contractModalContractId) {
+      setContractModalContract(null);
+      setContractModalLoading(false);
+      setContractModalError("");
+      return;
+    }
+
+    setContractModalLoading(true);
+    setContractModalError("");
+    setContractModalContract(null);
+
+    void getDoc(doc(firebaseDb, "contracts", contractModalContractId))
+      .then((docSnap) => {
+        if (!docSnap.exists()) {
+          setContractModalError("Contract not found.");
+          return;
+        }
+        const data = docSnap.data() as any;
+        setContractModalContract({
+          id: docSnap.id,
+          title: data.title ?? "Contract",
+          description: data.description ?? "",
+          workStatus: data.workStatus,
+          paymentStatus: data.paymentStatus,
+          paymentInstallments: Number(data.paymentInstallments ?? 0),
+          paymentCurrentInstallment: Number(data.paymentCurrentInstallment ?? 0),
+          paymentTotalAmountSats: Number(data.paymentTotalAmountSats ?? 0),
+          paymentTotalChargedSats: Number(data.paymentTotalChargedSats ?? 0),
+          freelancerId: data.freelancerId,
+          freelancerName: data.freelancerName,
+          submissionMessage: data.submissionMessage ?? "",
+          submissionLink: data.submissionLink ?? "",
+          submissionAttachment: data.submissionAttachment ?? null,
+        });
+      })
+      .catch((error) => {
+        console.error("Unable to load contract preview:", error);
+        setContractModalError("Unable to load contract details.");
+      })
+      .finally(() => setContractModalLoading(false));
+  }, [contractModalContractId]);
 
   const isPresenceActive = (userData: any) => {
     if (!userData?.online) return false;
@@ -480,6 +592,259 @@ export default function ClientMessagesPage() {
   const selectedMessage = selectedConversation
     ? messageList.find((m) => m.id === selectedConversation.id) ?? null
     : null;
+
+  useEffect(() => {
+    if (!selectedConversation) {
+      setPendingSubmissionJob(null);
+      return;
+    }
+
+    const contractId = getContractId(selectedConversation);
+    const submissionQuery = query(
+      collection(firebaseDb, "submitted_jobs"),
+      where("contractId", "==", contractId),
+      where("status", "==", "pending"),
+      orderBy("submittedAt", "desc"),
+      limit(1)
+    );
+
+    const unsubscribe = onSnapshot(submissionQuery, (snapshot) => {
+      const item = snapshot.docs[0];
+      if (!item) {
+        setPendingSubmissionJob(null);
+        return;
+      }
+      const data = item.data() as any;
+      setPendingSubmissionJob({
+        id: item.id,
+        contractId: data.contractId,
+        description: data.description || "",
+        link: data.link || "",
+        attachment: data.attachment ?? null,
+        submittedAt: data.submittedAt?.toDate ? data.submittedAt.toDate() : new Date(),
+        status: data.status ?? "pending",
+        revisionMessage: data.revisionMessage ?? "",
+        milestoneIndex: Number(data.milestoneIndex ?? 0),
+        milestoneTitle: data.milestoneTitle ?? "",
+      });
+    });
+
+    return () => unsubscribe();
+  }, [selectedConversation]);
+
+  const resolveFreelancerLightningAddress = async (freelancerId: string) => {
+    if (!freelancerId) return "";
+    const [freelancerSnap, allUsersSnap] = await Promise.all([
+      getDoc(doc(firebaseDb, "freelancers", freelancerId)),
+      getDoc(doc(firebaseDb, "all_users", freelancerId)),
+    ]);
+    const freelancerData = freelancerSnap.exists() ? (freelancerSnap.data() as any) : {};
+    const allUserData = allUsersSnap.exists() ? (allUsersSnap.data() as any) : {};
+    return (
+      freelancerData?.settings?.payment?.lightningAddress ||
+      freelancerData?.lightningAddress ||
+      freelancerData?.settings?.lightningAddress ||
+      allUserData?.lightningAddress ||
+      ""
+    );
+  };
+
+  const handleApproveSubmission = async () => {
+    if (!selectedConversation || !currentUserId || !pendingSubmissionJob) return;
+    setApprovalErrorMessage("");
+    setIsApprovingSubmission(true);
+
+    try {
+      const contractId = getContractId(selectedConversation);
+      const contractDoc = await getDoc(doc(firebaseDb, "contracts", contractId));
+      if (!contractDoc.exists()) {
+        throw new Error("Unable to find the linked contract for this submission.");
+      }
+
+      const contract = contractDoc.data() as any;
+      const paymentStatus = contract.paymentStatus ?? "unfunded";
+      const fundedInstallments = Number(contract.paymentCurrentInstallment ?? 0);
+      const totalInstallments = Number(contract.paymentInstallments ?? 1);
+      const releasedInstallments = Number(contract.paymentReleasedInstallments ?? 0);
+      const nextMilestoneIndex = releasedInstallments + 1;
+      const milestone = Array.isArray(contract.milestones)
+        ? contract.milestones.find((item: any, index: number) => Number(item.index ?? index + 1) === nextMilestoneIndex)
+        : null;
+      const totalAmount = Number(contract.paymentTotalAmountSats ?? parseSats(contract.budget) ?? 0);
+      const milestoneAmount = Number((milestone as any)?.freelancerAmountSats ?? calculateInstallmentAmount(totalAmount, totalInstallments, nextMilestoneIndex));
+      const milestoneFundedSats = milestone ? Number(milestone.fundedSats ?? 0) : milestoneAmount;
+      const milestoneReleasedSats = milestone ? Number(milestone.releasedSats ?? 0) : 0;
+      const remainingMilestoneEscrow = Math.max(0, milestoneFundedSats - milestoneReleasedSats);
+
+      if (nextMilestoneIndex > totalInstallments) {
+        throw new Error("All milestones for this contract have already been approved and paid.");
+      }
+      if ((Number(contract.escrowReleasedSats ?? 0) + milestoneAmount) > totalAmount) {
+        throw new Error(`Releasing ${milestoneAmount.toLocaleString()} sats would exceed the total contract budget of ${totalAmount.toLocaleString()} sats.`);
+      }
+      if ((Number(contract.escrowReleasedSats ?? 0) + milestoneAmount) > Number(contract.escrowFundedTotalSats ?? 0)) {
+        throw new Error(`Releasing ${milestoneAmount.toLocaleString()} sats would exceed the funded escrow balance.`);
+      }
+
+      const canRelease = fundedInstallments >= nextMilestoneIndex && (paymentStatus === "funded" || paymentStatus === "released") && remainingMilestoneEscrow >= milestoneAmount;
+      if (!canRelease) {
+        const shortfall = Math.max(0, milestoneAmount - remainingMilestoneEscrow);
+        throw new Error(shortfall > 0 ? `You need to fund ${shortfall.toLocaleString()} sats more in escrow before approving this milestone.` : "This milestone is not funded yet. Fund escrow before approving work.");
+      }
+
+      const lightningAddress = await resolveFreelancerLightningAddress(selectedConversation.freelancerId);
+      if (!lightningAddress) {
+        throw new Error("Freelancer has not set up a Lightning address. Payment cannot be processed.");
+      }
+      if (milestoneAmount <= 0) {
+        throw new Error("Unable to calculate milestone amount.");
+      }
+
+      const paymentResponse = await fetch("/api/send-payment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lightningAddress,
+          amount: milestoneAmount,
+          memo: `Milestone ${nextMilestoneIndex} payment for contract: ${contract.title ?? selectedConversation.jobTitle ?? "Contract"}`,
+        }),
+      });
+
+      const rawPaymentResponse = await paymentResponse.text();
+      let paymentData: any = null;
+      try {
+        paymentData = rawPaymentResponse ? JSON.parse(rawPaymentResponse) : null;
+      } catch {
+        throw new Error(`Failed to parse payment response: ${rawPaymentResponse}`);
+      }
+      if (!paymentResponse.ok) throw new Error(paymentData?.error ?? `Failed to send payment to freelancer: ${rawPaymentResponse}`);
+
+      await updateDoc(doc(firebaseDb, "submitted_jobs", pendingSubmissionJob.id), { status: "approved", updatedAt: serverTimestamp() });
+      const nextReleasedCount = releasedInstallments + 1;
+      const isFinalRelease = nextReleasedCount >= totalInstallments;
+      const updatedMilestones = (Array.isArray(contract.milestones) ? contract.milestones : []).map((item: any, index: number) => {
+        const itemIndex = Number(item.index ?? index + 1);
+        if (itemIndex !== nextMilestoneIndex) return item;
+        return { ...item, releasedSats: Number(item.releasedSats ?? 0) + milestoneAmount, status: "released", releasedAt: new Date().toISOString() };
+      });
+      const contractUpdate = {
+        workStatus: isFinalRelease ? "approved" : "in_progress",
+        paymentReleasedInstallments: nextReleasedCount,
+        escrowReleasedSats: (Number(contract.escrowReleasedSats ?? 0) + milestoneAmount),
+        milestones: updatedMilestones,
+        paymentStatus: isFinalRelease ? "released" : "funded",
+        updatedAt: serverTimestamp(),
+      };
+      await setDoc(doc(firebaseDb, "contracts", contractId), contractUpdate, { merge: true });
+      await setDoc(doc(firebaseDb, "escrows", contractId), {
+        totalReleasedToFreelancerSats: contractUpdate.escrowReleasedSats,
+        releasedMilestoneCount: nextReleasedCount,
+        milestones: updatedMilestones,
+        status: isFinalRelease ? "released" : "funded",
+        updatedAt: serverTimestamp(),
+      }, { merge: true });
+
+      const conversationDoc = await getConversationForContract(selectedConversation.jobId, selectedConversation.freelancerId);
+      const approvalMessage = `Milestone ${nextMilestoneIndex}${milestone?.title || milestone?.name ? `: ${milestone?.title || milestone?.name}` : ""} approved and payment of ${milestoneAmount} sats sent to freelancer.`;
+      if (conversationDoc) {
+        await updateDoc(conversationDoc.ref, {
+          workStatus: contractUpdate.workStatus,
+          paymentStatus: contractUpdate.paymentStatus,
+          escrowReleasedSats: contractUpdate.escrowReleasedSats,
+          milestones: updatedMilestones,
+          updatedAt: serverTimestamp(),
+          "lastMessage.text": approvalMessage,
+          "lastMessage.senderId": "system",
+          "lastMessage.createdAt": serverTimestamp(),
+          [`unread.${selectedConversation.freelancerId}`]: increment(1),
+        });
+      }
+
+      void sendUserNotification({
+        userId: selectedConversation.freelancerId,
+        title: "Milestone approved",
+        body: approvalMessage,
+        url: "/freelancer/dashboard/contracts",
+        tag: `approval-${contractId}-${nextMilestoneIndex}`,
+      }).catch(console.error);
+    } catch (error) {
+      console.error("Error approving submission:", error);
+      setApprovalErrorMessage(error instanceof Error ? error.message : "Failed to approve the submission and send payment. Please try again.");
+      throw error;
+    } finally {
+      setIsApprovingSubmission(false);
+    }
+  };
+
+  const handleRequestChanges = async (note: string) => {
+    if (!selectedConversation || !currentUserId || !pendingSubmissionJob) return;
+    if (!note.trim()) {
+      throw new Error("Write a short note so the freelancer knows what to adjust.");
+    }
+
+    try {
+      const contractId = getContractId(selectedConversation);
+      const contractDoc = await getDoc(doc(firebaseDb, "contracts", contractId));
+      if (!contractDoc.exists()) {
+        throw new Error("Unable to find the linked contract for this submission.");
+      }
+      const contract = contractDoc.data() as any;
+      const nextMilestoneIndex = Number(contract.paymentReleasedInstallments ?? 0) + 1;
+      const updatedMilestones = (Array.isArray(contract.milestones) ? contract.milestones : []).map((item: any, index: number) => {
+        const itemIndex = Number(item.index ?? index + 1);
+        if (itemIndex !== nextMilestoneIndex) return item;
+        return { ...item, status: "funded", revisionMessage: note, changesRequestedAt: new Date().toISOString() };
+      });
+      const messageText = `Work returned for adjustments on "${contract.title ?? selectedConversation.jobTitle ?? "this contract"}". Note: ${note}`;
+      const conversationId = selectedConversation.jobId && selectedConversation.freelancerId
+        ? createConversationId(selectedConversation.jobId, selectedConversation.freelancerId)
+        : contractId;
+
+      await Promise.all([
+        updateDoc(doc(firebaseDb, "submitted_jobs", pendingSubmissionJob.id), {
+          status: "rejected",
+          revisionMessage: note,
+          reviewedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        }),
+        setDoc(doc(firebaseDb, "contracts", contractId), {
+          workStatus: "changes_requested",
+          revisionMessage: note,
+          milestones: updatedMilestones,
+          unreadByFreelancer: true,
+          updatedAt: serverTimestamp(),
+        }, { merge: true }),
+        setDoc(doc(firebaseDb, "conversations", conversationId), {
+          workStatus: "changes_requested",
+          revisionMessage: note,
+          milestones: updatedMilestones,
+          "lastMessage.text": messageText,
+          "lastMessage.senderId": "system",
+          "lastMessage.createdAt": serverTimestamp(),
+          [`unread.${selectedConversation.freelancerId}`]: increment(1),
+          updatedAt: serverTimestamp(),
+        }, { merge: true }),
+        addDoc(collection(firebaseDb, "conversations", conversationId, "messages"), {
+          senderId: "system",
+          senderRole: "system",
+          text: messageText,
+          messageType: "changes_requested",
+          createdAt: serverTimestamp(),
+        }),
+      ]);
+
+      void sendUserNotification({
+        userId: selectedConversation.freelancerId,
+        title: "Changes requested",
+        body: messageText,
+        url: "/freelancer/dashboard/contracts",
+        tag: `changes-${contractId}-${nextMilestoneIndex}`,
+      }).catch(console.error);
+    } catch (error) {
+      console.error("Error requesting changes:", error);
+      throw error;
+    }
+  };
 
   const handleSendMessage = async (text: string, file?: File | null) => {
     if (!selectedConversation || !currentUserId) return;
@@ -960,33 +1325,108 @@ export default function ClientMessagesPage() {
             `}
             >
               {selectedMessage && selectedConversation ? (
-                <ChatView
-                  message={selectedMessage}
-                  chatMessages={chatMessages}
-                  onBack={() => setSelectedChat(null)}
-                  onSendMessage={handleSendMessage}
-                  viewerRole="client"
-                  paymentStatus={selectedConversation.paymentStatus}
-                  paymentAmountSats={selectedConversation.paymentAmountSats}
-                  paymentTotalAmountSats={selectedConversation.paymentTotalAmountSats}
-                  paymentInstallments={selectedConversation.paymentInstallments}
-                  paymentCurrentInstallment={selectedConversation.paymentCurrentInstallment}
-                  paymentPaidAmountSats={selectedConversation.paymentPaidAmountSats}
-                  paymentTotalChargedSats={selectedConversation.paymentTotalChargedSats}
-                  platformFeePercent={selectedConversation.platformFeePercent}
-                  platformFeeSats={selectedConversation.platformFeeSats}
-                  paymentMode={selectedConversation.paymentMode}
-                  milestones={selectedConversation.milestones}
-                  paymentRequest={selectedConversation.paymentRequest}
-                  workStatus={selectedConversation.workStatus}
-                  submittedWorkHref={`/client/dashboard/contracts?contract=${
-                    selectedConversation.jobId && selectedConversation.freelancerId
-                      ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
-                      : selectedConversation.id
-                  }`}
-                  onCreatePaymentInvoice={handleCreatePaymentInvoice}
-                  onVerifyPayment={handleVerifyPayment}
-                />
+                <>
+                  <ChatView
+                    message={selectedMessage}
+                    chatMessages={chatMessages}
+                    onBack={() => setSelectedChat(null)}
+                    onSendMessage={handleSendMessage}
+                    viewerRole="client"
+                    paymentStatus={selectedConversation.paymentStatus}
+                    paymentAmountSats={selectedConversation.paymentAmountSats}
+                    paymentTotalAmountSats={selectedConversation.paymentTotalAmountSats}
+                    paymentInstallments={selectedConversation.paymentInstallments}
+                    paymentCurrentInstallment={selectedConversation.paymentCurrentInstallment}
+                    paymentPaidAmountSats={selectedConversation.paymentPaidAmountSats}
+                    paymentTotalChargedSats={selectedConversation.paymentTotalChargedSats}
+                    platformFeePercent={selectedConversation.platformFeePercent}
+                    platformFeeSats={selectedConversation.platformFeeSats}
+                    paymentMode={selectedConversation.paymentMode}
+                    milestones={selectedConversation.milestones}
+                    paymentRequest={selectedConversation.paymentRequest}
+                    workStatus={selectedConversation.workStatus}
+                    submittedWorkHref={`/client/dashboard/contracts?contract=${
+                      selectedConversation.jobId && selectedConversation.freelancerId
+                        ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
+                        : selectedConversation.id
+                    }`}
+                    onCreatePaymentInvoice={handleCreatePaymentInvoice}
+                    onVerifyPayment={handleVerifyPayment}
+                    onApproveSubmission={handleApproveSubmission}
+                    onRequestChanges={handleRequestChanges}
+                    pendingSubmissionJob={pendingSubmissionJob}
+                    onOpenContractModal={handleOpenContractModal}
+                  />
+
+                  {contractModalContractId ? (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+                      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={closeContractModal} />
+                      <div className="relative w-full max-w-2xl overflow-hidden rounded-3xl border border-white/30 bg-white shadow-2xl">
+                        <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.18em] text-gray-500">Contract preview</p>
+                            <h2 className="mt-2 text-xl font-semibold text-slate-950">{contractModalContract?.title || 'Contract details'}</h2>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={closeContractModal}
+                            className="rounded-full bg-slate-100 p-2 text-slate-600 hover:bg-slate-200"
+                            aria-label="Close contract preview"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                        <div className="space-y-4 px-5 py-5 text-sm text-slate-700">
+                          {contractModalLoading ? (
+                            <p>Loading contract details…</p>
+                          ) : contractModalError ? (
+                            <p className="text-red-600">{contractModalError}</p>
+                          ) : contractModalContract ? (
+                            <>
+                              <div className="space-y-3">
+                                <p className="text-xs uppercase tracking-[0.14em] text-gray-500">Status</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {contractModalContract.workStatus ? (
+                                    <span className="rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-orange-700">{contractModalContract.workStatus.replace(/_/g, ' ')}</span>
+                                  ) : null}
+                                  {contractModalContract.paymentStatus ? (
+                                    <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-700">{contractModalContract.paymentStatus.replace(/_/g, ' ')}</span>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 rounded-3xl bg-slate-50 p-4">
+                                <p className="text-xs uppercase tracking-[0.14em] text-gray-500">Submission note</p>
+                                <p className="text-sm leading-relaxed text-slate-800">{contractModalContract.submissionMessage || 'No submission note provided.'}</p>
+                                {contractModalContract.submissionLink ? (
+                                  <p className="text-sm break-all text-blue-700 underline"><a href={contractModalContract.submissionLink} target="_blank" rel="noreferrer">Open delivery link</a></p>
+                                ) : null}
+                                {contractModalContract.submissionAttachment?.url ? (
+                                  <a href={contractModalContract.submissionAttachment.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200">View attachment</a>
+                                ) : null}
+                              </div>
+
+                              <div className="space-y-3 rounded-3xl bg-slate-50 p-4">
+                                <p className="text-xs uppercase tracking-[0.14em] text-gray-500">Contract summary</p>
+                                <p>{contractModalContract.description || 'No contract description available.'}</p>
+                                <div className="grid grid-cols-2 gap-3 pt-3 text-sm text-slate-700">
+                                  <div>
+                                    <p className="text-xs uppercase tracking-[0.14em] text-gray-500">Installments</p>
+                                    <p>{contractModalContract.paymentCurrentInstallment ?? 0} / {contractModalContract.paymentInstallments ?? 0}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs uppercase tracking-[0.14em] text-gray-500">Budget</p>
+                                    <p>{contractModalContract.paymentTotalChargedSats ? `${contractModalContract.paymentTotalChargedSats.toLocaleString()} sats` : `${contractModalContract.paymentTotalAmountSats?.toLocaleString() ?? 0} sats`}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-500">
                   <div className="text-center">

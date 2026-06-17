@@ -79,6 +79,21 @@ interface ChatViewProps {
   onVerifyPayment?: (paymentRequest?: string) => Promise<'funded' | 'pending' | 'expired'>;
   onSubmitWork?: (payload: { description: string; link: string; file?: File | null }) => Promise<void>;
   submittedWorkHref?: string;
+  onApproveSubmission?: () => Promise<void>;
+  onRequestChanges?: (note: string) => Promise<void>;
+  onOpenContractModal?: (contractId: string) => void;
+  pendingSubmissionJob?: {
+    id: string;
+    contractId: string;
+    description: string;
+    link?: string;
+    attachment?: { name?: string; url?: string } | null;
+    submittedAt: Date;
+    status: "pending" | "approved" | "rejected";
+    revisionMessage?: string;
+    milestoneIndex?: number;
+    milestoneTitle?: string;
+  } | null;
 }
 
 export default function ChatView({
@@ -105,6 +120,10 @@ export default function ChatView({
   onVerifyPayment,
   onSubmitWork,
   submittedWorkHref,
+  onApproveSubmission,
+  onRequestChanges,
+  onOpenContractModal,
+  pendingSubmissionJob,
 }: ChatViewProps) {
   const [newMessage, setNewMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -126,6 +145,10 @@ export default function ChatView({
   const [isSubmittingWork, setIsSubmittingWork] = useState(false);
   const [workError, setWorkError] = useState('');
   const [workSuccess, setWorkSuccess] = useState('');
+  const [changeRequestNote, setChangeRequestNote] = useState('');
+  const [isSendingChangeRequest, setIsSendingChangeRequest] = useState(false);
+  const [approveError, setApproveError] = useState('');
+  const [isApproving, setIsApproving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const workFileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -187,6 +210,10 @@ export default function ChatView({
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleInternalLinkClick = (url: string) => {
+    setIsWorkExpanded(true);
   };
 
   useEffect(() => {
@@ -320,6 +347,40 @@ export default function ChatView({
       }
     } finally {
       setIsVerifyingPayment(false);
+    }
+  };
+
+  const handleApproveSubmission = async () => {
+    if (!onApproveSubmission || isApproving) return;
+
+    try {
+      setApproveError('');
+      setIsApproving(true);
+      await onApproveSubmission();
+    } catch (error) {
+      setApproveError(error instanceof Error ? error.message : 'Unable to approve submission.');
+    } finally {
+      setIsApproving(false);
+    }
+  };
+
+  const handleSendChangeRequest = async () => {
+    if (!onRequestChanges || isSendingChangeRequest) return;
+    const note = changeRequestNote.trim();
+    if (!note) {
+      setApproveError('Write a short note so the freelancer knows what to adjust.');
+      return;
+    }
+
+    try {
+      setApproveError('');
+      setIsSendingChangeRequest(true);
+      await onRequestChanges(note);
+      setChangeRequestNote('');
+    } catch (error) {
+      setApproveError(error instanceof Error ? error.message : 'Unable to request changes.');
+    } finally {
+      setIsSendingChangeRequest(false);
     }
   };
 
@@ -708,9 +769,59 @@ export default function ChatView({
                 </div>
               ) : null}
 
-              {viewerRole === 'client' && workStatus === 'submitted' && submittedWorkHref ? (
-                <Button href={submittedWorkHref} size="sm" className="rounded-full">
-                  Review Submitted Work
+              {viewerRole === 'client' && workStatus === 'submitted' && pendingSubmissionJob ? (
+                <div className="space-y-3">
+                  <div className="rounded-[10px] border border-[#EAE7E2] bg-white p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6b6762]">Submitted work</p>
+                        {pendingSubmissionJob.milestoneIndex ? (
+                          <p className="mt-1 text-[12px] font-bold text-[#1a1a1a]">Milestone {pendingSubmissionJob.milestoneIndex}{pendingSubmissionJob.milestoneTitle ? `: ${pendingSubmissionJob.milestoneTitle}` : ''}</p>
+                        ) : null}
+                      </div>
+                      <p className="text-[11px] text-gray-500">{pendingSubmissionJob.submittedAt.toLocaleDateString()}</p>
+                    </div>
+                    <p className="mt-3 text-[13px] text-[#1a1a1a]">{pendingSubmissionJob.description || 'Work submitted for review.'}</p>
+                    {pendingSubmissionJob.link ? (
+                      <a href={pendingSubmissionJob.link} target="_blank" rel="noreferrer" className="mt-3 block text-[12px] text-blue-600 hover:underline break-all">{pendingSubmissionJob.link}</a>
+                    ) : null}
+                    {pendingSubmissionJob.attachment?.url ? (
+                      <a href={pendingSubmissionJob.attachment.url} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-[#F7F6F3] px-3 py-2 text-[12px] text-gray-700 hover:bg-[#EFEDE8]">📎 {pendingSubmissionJob.attachment.name || 'Attachment'}</a>
+                    ) : null}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button size="sm" onClick={() => void handleApproveSubmission()} className="rounded-full bg-green-600 text-white hover:bg-green-700" disabled={isApproving || isSendingChangeRequest}>
+                      {isApproving ? 'Approving...' : 'Approve & Pay'}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setChangeRequestNote('Write a short note for the freelancer...')} className="rounded-full border-gray-300 text-gray-700 hover:bg-gray-50" disabled={isApproving || isSendingChangeRequest}>
+                      Request Changes
+                    </Button>
+                  </div>
+                  <div className="rounded-[10px] border border-[#EAE7E2] bg-white p-3">
+                    <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[#6b6762]">Adjustment note</label>
+                    <textarea
+                      value={changeRequestNote}
+                      onChange={(e) => setChangeRequestNote(e.target.value)}
+                      rows={4}
+                      className="mt-2 w-full rounded-[10px] border border-[#EAE7E2] bg-[#FAF8F5] px-3 py-2 text-[12px] text-[#1a1a1a] outline-none focus:ring-2 focus:ring-orange-400/20 resize-none"
+                      placeholder="Explain what should be updated before resubmission"
+                    />
+                    <div className="mt-3 flex items-center justify-between gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setChangeRequestNote('')} className="rounded-full">
+                        Clear
+                      </Button>
+                      <Button size="sm" onClick={() => void handleSendChangeRequest()} className="rounded-full bg-orange-500 text-white hover:bg-orange-600" disabled={isSendingChangeRequest || isApproving}>
+                        {isSendingChangeRequest ? 'Sending...' : 'Send Request'}
+                      </Button>
+                    </div>
+                  </div>
+                  {approveError ? (
+                    <p className="rounded-[10px] bg-red-50 px-3 py-2 text-[11px] text-red-700">{approveError}</p>
+                  ) : null}
+                </div>
+              ) : viewerRole === 'client' && workStatus === 'submitted' && submittedWorkHref ? (
+                <Button size="sm" className="rounded-full" onClick={() => setIsWorkExpanded(true)}>
+                  Review submission details
                 </Button>
               ) : null}
 
@@ -730,7 +841,12 @@ export default function ChatView({
           <span className="bg-[#F3F1ED] text-[11px] sm:text-xs text-gray-500 px-3 sm:px-4 py-0.5 sm:py-1 rounded-full font-medium tracking-wide shadow-sm">TODAY</span>
         </div>
         {chatMessages.map((msg) => (
-          <ChatMessage key={msg.id} message={msg} avatar={message.sender.avatar} />
+          <ChatMessage
+            key={msg.id}
+            message={msg}
+            avatar={message.sender.avatar}
+            onInternalLinkClick={handleInternalLinkClick}
+          />
         ))}
         <div ref={messagesEndRef} />
       </div>

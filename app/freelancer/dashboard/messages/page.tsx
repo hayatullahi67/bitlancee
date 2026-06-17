@@ -537,7 +537,7 @@ export default function MessagesPage() {
     const milestoneTitle = milestone?.title || `Milestone ${nextMilestoneIndex}`;
     const contractTitle = selectedConversation.jobTitle || contractData.title || "Contract";
     const contractUrl = `/client/dashboard/contracts?contract=${contractId}`;
-    const notificationText = `Work for "${contractTitle}" - Milestone ${nextMilestoneIndex}: ${milestoneTitle} has been submitted for review.${link ? ` Delivery link: ${link}.` : ""} [Check it out](${contractUrl})`;
+    const notificationText = `Your deliverable for "${contractTitle}" — Milestone ${nextMilestoneIndex}: ${milestoneTitle} has been submitted for client review. ${link ? `Delivery link: ${link}. ` : ""}[Review submission details](${contractUrl})`;
     const updatedMilestones = milestones.map((item) => {
       if (Number(item.index) !== nextMilestoneIndex) return item;
       return {

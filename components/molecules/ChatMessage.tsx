@@ -344,6 +344,7 @@ interface ChatMessageProps {
   };
   avatar?: string;
   initials?: string;
+  onInternalLinkClick?: (url: string) => void;
 }
 
 // ─── Media Modal ────────────────────────────────────────────────────────────
@@ -689,6 +690,11 @@ function extractUrls(text: string): string[] {
   return Array.from(text.matchAll(URL_REGEX), (m) => m[1]);
 }
 
+function isInternalContractLink(url: string) {
+  return /^\/client\/dashboard\/contracts\?contract=/.test(url) ||
+    /^https?:\/\/[^\/]+\/client\/dashboard\/contracts\?contract=/.test(url);
+}
+
 // Fetch link preview via a public meta-scraper (or your own endpoint)
 async function fetchLinkPreview(url: string): Promise<LinkPreview | null> {
   try {
@@ -709,7 +715,7 @@ async function fetchLinkPreview(url: string): Promise<LinkPreview | null> {
 }
 
 // ─── Message text renderer ───────────────────────────────────────────────────
-function formatMessageText(text: string, isMe: boolean) {
+function formatMessageText(text: string, isMe: boolean, onInternalLinkClick?: (url: string) => void) {
   const markdownLinkRegex = /\[([^\]]+)\]\((https?:\/\/[^\s)]+|\/[\w\-\/\.\?\#\=\&\%]+)\)/g;
   const urlRegex = /(https?:\/\/[^\s]+|\/[\w\-\/\.\?\#\=\&\%]+)/g;
   const elements: Array<JSX.Element | string> = [];
@@ -719,18 +725,41 @@ function formatMessageText(text: string, isMe: boolean) {
   const pushTextWithUrls = (value: string) => {
     const parts = value.split(urlRegex).filter(Boolean);
     parts.forEach((part, index) => {
-      if (urlRegex.test(part)) {
+      const isUrl = /^(https?:\/\/[^\s]+|\/[\w\-\/\.\?\#\=\&\%]+)$/.test(part);
+      if (isUrl) {
+        const isInternalLink = isInternalContractLink(part);
+        if (isInternalLink && onInternalLinkClick) {
+          elements.push(
+            <button
+              key={`link-${elements.length}-${index}`}
+              type="button"
+              onClick={() => onInternalLinkClick(part)}
+              className={`inline-flex flex-wrap items-center gap-1 rounded-2xl px-3 py-1.5 text-white underline-offset-4 transition-colors max-w-full break-all whitespace-normal overflow-wrap-anywhere
+                ${isMe ? 'bg-[#b86200] hover:bg-[#9a5200]' : 'bg-[#CC7000] hover:bg-[#b45e00]'}`}
+            >
+              <LinkIcon className="w-3 h-3 shrink-0" />
+              <span className="break-all whitespace-normal min-w-0">{part}</span>
+            </button>
+          );
+          return;
+        }
         elements.push(
           <a
             key={`link-${elements.length}-${index}`}
             href={part}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`inline-flex flex-wrap items-center gap-1 rounded-2xl px-3 py-1.5 underline-offset-4 transition-colors text-[#fff] break-all max-w-full
+            onClick={(event) => {
+              if (isInternalLink && onInternalLinkClick) {
+                event.preventDefault();
+                onInternalLinkClick(part);
+              }
+            }}
+            target={isInternalLink ? undefined : '_blank'}
+            rel={isInternalLink ? undefined : 'noopener noreferrer'}
+            className={`inline-flex flex-wrap items-center gap-1 rounded-2xl px-3 py-1.5 text-white underline-offset-4 transition-colors max-w-full break-all whitespace-normal overflow-wrap-anywhere
               ${isMe ? 'bg-[#b86200] hover:bg-[#9a5200]' : 'bg-[#CC7000] hover:bg-[#b45e00]'}`}
           >
             <LinkIcon className="w-3 h-3 shrink-0" />
-            <span className="break-all min-w-0">{part}</span>
+            <span className="break-all whitespace-normal min-w-0">{part}</span>
           </a>
         );
         return;
@@ -744,19 +773,41 @@ function formatMessageText(text: string, isMe: boolean) {
       pushTextWithUrls(text.slice(lastIndex, match.index));
     }
     const [, label, url] = match;
-    elements.push(
-      <a
-        key={`markdown-link-${elements.length}`}
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className={`inline-flex flex-wrap items-center gap-1 rounded-2xl px-3 py-1.5 text-white underline-offset-4 transition-colors max-w-full break-all
-          ${isMe ? 'bg-[#b86200] hover:bg-[#9a5200]' : 'bg-[#CC7000] hover:bg-[#b45e00]'}`}
-      >
-        <LinkIcon className="w-3 h-3 shrink-0" />
-        <span className="break-all min-w-0">{label}</span>
-      </a>
-    );
+    const isInternalLink = isInternalContractLink(url);
+    if (isInternalLink && onInternalLinkClick) {
+      elements.push(
+        <button
+          key={`markdown-link-${elements.length}`}
+          type="button"
+          onClick={() => onInternalLinkClick(url)}
+          className={`inline-flex flex-wrap items-center gap-1 rounded-2xl px-3 py-1.5 text-white underline-offset-4 transition-colors max-w-full break-all whitespace-normal overflow-wrap-anywhere
+            ${isMe ? 'bg-[#b86200] hover:bg-[#9a5200]' : 'bg-[#CC7000] hover:bg-[#b45e00]'}`}
+        >
+          <LinkIcon className="w-3 h-3 shrink-0" />
+          <span className="break-all whitespace-normal min-w-0">{label}</span>
+        </button>
+      );
+    } else {
+      elements.push(
+        <a
+          key={`markdown-link-${elements.length}`}
+          href={url}
+          onClick={(event) => {
+            if (isInternalLink && onInternalLinkClick) {
+              event.preventDefault();
+              onInternalLinkClick(url);
+            }
+          }}
+          target={isInternalLink ? undefined : '_blank'}
+          rel={isInternalLink ? undefined : 'noopener noreferrer'}
+          className={`inline-flex flex-wrap items-center gap-1 rounded-2xl px-3 py-1.5 text-white underline-offset-4 transition-colors max-w-full break-all whitespace-normal overflow-wrap-anywhere
+            ${isMe ? 'bg-[#b86200] hover:bg-[#9a5200]' : 'bg-[#CC7000] hover:bg-[#b45e00]'}`}
+        >
+          <LinkIcon className="w-3 h-3 shrink-0" />
+          <span className="break-all whitespace-normal min-w-0">{label}</span>
+        </a>
+      );
+    }
     lastIndex = match.index + match[0].length;
   }
 
@@ -772,6 +823,7 @@ export default function ChatMessage({
   message,
   avatar,
   initials = 'SN',
+  onInternalLinkClick,
 }: ChatMessageProps) {
   const isMe = message.sender === 'me';
   const [linkPreviews, setLinkPreviews] = useState<LinkPreview[]>([]);
@@ -811,7 +863,7 @@ export default function ChatMessage({
       {/* Bubble */}
       <div
         className={`
-          max-w-[78%] min-w-0 px-4 py-3 rounded-2xl shadow-sm
+          max-w-[78%] min-w-0 px-4 py-3 rounded-2xl shadow-sm break-words overflow-hidden
           ${isMe
             ? 'bg-[#CC7000] text-white rounded-br-md shadow-orange-950/10'
             : 'bg-white text-[#232323] border border-[#ece7df] rounded-bl-md shadow-gray-200'}
@@ -819,8 +871,8 @@ export default function ChatMessage({
       >
         {/* Text */}
         {message.text ? (
-          <p className="text-sm leading-relaxed whitespace-pre-line break-all">
-            {formatMessageText(message.text, isMe)}
+          <p className="text-sm leading-relaxed whitespace-pre-line break-all break-words overflow-wrap-anywhere">
+            {formatMessageText(message.text, isMe, onInternalLinkClick)}
           </p>
         ) : null}
 
