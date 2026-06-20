@@ -6,6 +6,9 @@ import ChatMessage from '@/components/molecules/ChatMessage';
 import Button from '@/components/atoms/Button';
 import { Copy, Send, Paperclip, X, ShieldCheck, BriefcaseBusiness } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
+import { doc, getDoc } from 'firebase/firestore';
+import { firebaseDb } from '@/lib/firebase';
+import DisputeFormModal from '@/components/organisms/DisputeFormModal';
 
 interface Message {
   id: string;
@@ -94,9 +97,12 @@ interface ChatViewProps {
     milestoneIndex?: number;
     milestoneTitle?: string;
   } | null;
-}
-
-export default function ChatView({
+  jobId?: string;
+  jobTitle?: string;
+  contractId?: string;
+  /** Override the role used for the dispute form (defaults to viewerRole) */
+  viewerRole_disputeRole?: 'client' | 'freelancer';
+}export default function ChatView({
   message,
   chatMessages,
   onBack,
@@ -124,6 +130,10 @@ export default function ChatView({
   onRequestChanges,
   onOpenContractModal,
   pendingSubmissionJob,
+  jobId,
+  jobTitle,
+  contractId,
+  viewerRole_disputeRole,
 }: ChatViewProps) {
   const [newMessage, setNewMessage] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -133,6 +143,10 @@ export default function ChatView({
   const [verificationComplete, setVerificationComplete] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [selectedInstallments, setSelectedInstallments] = useState(1);
+  const [isJobModalOpen, setIsJobModalOpen] = useState(false);
+  const [jobDetails, setJobDetails] = useState<any | null>(null);
+  const [loadingJob, setLoadingJob] = useState(false);
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [selectedFundingMode, setSelectedFundingMode] = useState<FundingMode>('full');
   const [milestoneTitles, setMilestoneTitles] = useState<string[]>(['Complete project']);
   const [activePaymentRequest, setActivePaymentRequest] = useState('');
@@ -485,12 +499,141 @@ export default function ChatView({
               : 'Milestone approved.'
             : paymentStatus === 'funded'
               ? 'The freelancer can submit work for this funded milestone.'
-              : 'Fund the milestone before work is submitted.';
+      : 'Fund the milestone before work is submitted.';
 
   return (
+  <>
     <div className="flex h-full min-h-0 flex-col bg-[#FCF9F7CC]">
       {/* Header */}
-      <ChatHeader sender={message.sender} onBack={onBack} />
+        <ChatHeader
+          sender={message.sender}
+          onBack={onBack}
+          onViewJobDetails={() => {
+            // Open job detail modal using jobId prop
+            if (!jobId) return;
+            setLoadingJob(true);
+            const loadJob = async () => {
+              try {
+                const jobSnap = await getDoc(doc(firebaseDb, 'jobs', jobId));
+                if (jobSnap.exists()) {
+                  setJobDetails({ id: jobSnap.id, ...jobSnap.data() });
+                  setIsJobModalOpen(true);
+                } else {
+                  console.error('Job not found');
+                }
+              } catch (err) {
+                console.error('Failed to fetch job', err);
+              } finally {
+                setLoadingJob(false);
+              }
+            };
+            void loadJob();
+          }}
+          onRaiseDispute={() => setIsDisputeModalOpen(true)}
+        />
+        {/* Job Details Modal */}
+        {isJobModalOpen && jobDetails && (
+          <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/50 px-0 sm:items-center sm:px-4" onClick={() => setIsJobModalOpen(false)}>
+            <div
+              className="max-h-[88vh] w-full overflow-y-auto rounded-t-[22px] bg-white pb-6 shadow-2xl sm:max-w-lg sm:rounded-[18px]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[#EAE7E2] bg-white px-5 py-4">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#8C4F00]">Job Details</div>
+                  <h3 className="mt-0.5 text-[18px] font-black text-[#1a1a1a] leading-tight">{jobDetails.title || 'N/A'}</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsJobModalOpen(false)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200 transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              {/* Body */}
+              <div className="space-y-4 px-5 pt-4">
+                {/* Budget + Type row */}
+                <div className="flex flex-wrap gap-2">
+                  {jobDetails.budget && (
+                    <span className="inline-flex items-center rounded-full border border-[#EAE7E2] bg-[#FFF4E6] px-3 py-1 text-[12px] font-bold text-[#8C4F00]">
+                      {String(jobDetails.budget).toLowerCase().includes('sats') ? jobDetails.budget : `${jobDetails.budget} sats`}
+                    </span>
+                  )}
+                  {jobDetails.pricingType && (
+                    <span className="inline-flex items-center rounded-full border border-[#EAE7E2] bg-[#F7F6F3] px-3 py-1 text-[12px] font-semibold text-[#6b6762]">
+                      {jobDetails.pricingType}
+                    </span>
+                  )}
+                  {jobDetails.category && (
+                    <span className="inline-flex items-center rounded-full border border-[#EAE7E2] bg-[#F7F6F3] px-3 py-1 text-[12px] font-semibold text-[#6b6762]">
+                      {jobDetails.category}
+                    </span>
+                  )}
+                  {jobDetails.duration && (
+                    <span className="inline-flex items-center rounded-full border border-[#EAE7E2] bg-[#F7F6F3] px-3 py-1 text-[12px] font-semibold text-[#6b6762]">
+                      {jobDetails.duration}
+                    </span>
+                  )}
+                </div>
+                {/* Description */}
+                {jobDetails.description && (
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9e9690]">Description</div>
+                    <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[#1a1a1a]">{jobDetails.description}</p>
+                  </div>
+                )}
+                {/* Skills */}
+                {Array.isArray(jobDetails.skills) && jobDetails.skills.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9e9690]">Skills</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {jobDetails.skills.map((skill: string, i: number) => (
+                        <span key={i} className="rounded-full border border-[#EAE7E2] bg-[#F7F6F3] px-2.5 py-0.5 text-[11px] font-semibold text-[#6b6762]">
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Scope items */}
+                {Array.isArray(jobDetails.scopeItems) && jobDetails.scopeItems.length > 0 && (
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9e9690]">Scope of Work</div>
+                    <ul className="space-y-1">
+                      {jobDetails.scopeItems.map((item: string, i: number) => (
+                        <li key={i} className="flex items-start gap-2 text-[13px] text-[#1a1a1a]">
+                          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[#8C4F00]" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {/* Company */}
+                {(jobDetails.company || jobDetails.companyName) && (
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9e9690]">Company</div>
+                    <p className="text-[13px] font-semibold text-[#1a1a1a]">{jobDetails.company || jobDetails.companyName}</p>
+                  </div>
+                )}
+                {/* Location */}
+                {jobDetails.location && (
+                  <div>
+                    <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.14em] text-[#9e9690]">Location</div>
+                    <p className="text-[13px] text-[#1a1a1a]">{jobDetails.location}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        {loadingJob && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/30">
+            <div className="rounded-xl bg-white px-6 py-4 text-[13px] font-semibold text-[#1a1a1a] shadow-lg">Loading job details…</div>
+          </div>
+        )}
 
       <div className="border-b border-[#e8e6e1] bg-white px-3 py-2 sm:px-5">
         {/* Payment Section - Collapsible */}
@@ -919,5 +1062,17 @@ export default function ChatView({
 
      
     </div>
+
+    {/* Dispute Form Modal */}
+    {contractId && (
+      <DisputeFormModal
+        isOpen={isDisputeModalOpen}
+        onClose={() => setIsDisputeModalOpen(false)}
+        contractId={contractId}
+        contractTitle={jobTitle || 'Contract'}
+        raisedBy={(viewerRole_disputeRole ?? viewerRole) as 'client' | 'freelancer'}
+      />
+    )}
+  </>
   );
 }

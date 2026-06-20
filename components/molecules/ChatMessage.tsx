@@ -871,7 +871,7 @@ export default function ChatMessage({
       >
         {/* Text */}
         {message.text ? (
-          <p className="text-sm leading-relaxed whitespace-pre-line break-all break-words overflow-wrap-anywhere">
+          <p className="text-sm leading-relaxed whitespace-pre-wrap break-all break-words overflow-wrap-anywhere">
             {formatMessageText(message.text, isMe, onInternalLinkClick)}
           </p>
         ) : null}

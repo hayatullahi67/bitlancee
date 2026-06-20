@@ -21,6 +21,8 @@ import {
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { sendUserNotification } from "@/lib/notifications";
 import { onAuthStateChanged } from "firebase/auth";
+import { KebabDropdown, KebabMenuItem } from '@/components/ui/dropdown-menu';
+import DisputeFormModal from '@/components/organisms/DisputeFormModal';
 import {
   addDoc,
   collection,
@@ -354,6 +356,13 @@ export default function FreelancerContractsContent() {
   const [activeTab, setActiveTab] = useState<"contracts" | "submitted">("contracts");
   const [submittedJobs, setSubmittedJobs] = useState<SubmittedJob[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
+  const [disputeContract, setDisputeContract] = useState<{ id: string; title: string } | null>(null);
+
+  const openDispute = (contractId: string, contractTitle: string) => {
+    setDisputeContract({ id: contractId, title: contractTitle });
+    setIsDisputeModalOpen(true);
+  };
   const [selectedSubmissionId, setSelectedSubmissionId] = useState<string | null>(null);
   const [isSubmissionModalOpen, setIsSubmissionModalOpen] = useState(false);
   const [editingSubmissionId, setEditingSubmissionId] = useState<string | null>(null);
@@ -776,13 +785,16 @@ export default function FreelancerContractsContent() {
                             <ProgressBar percent={getMilestoneProgressPercent(contract)} color={progressColor} />
                             {totalMs > 0 && <p className="text-[10px] text-gray-400 mt-0.5">Milestone {Math.min(releasedCount + 1, totalMs)} of {totalMs}</p>}
                           </div>
-                          <div className="flex gap-2 pt-1">
+                          <div className="flex gap-2 pt-1 items-center">
                             <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-black text-gray-700 hover:bg-gray-50">
                               View Details <ChevronRight className="h-3.5 w-3.5" />
                             </button>
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/freelancer/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-4 w-4" />
                             </button>
+                            <KebabDropdown>
+                              <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                            </KebabDropdown>
                           </div>
                         </div>
 
@@ -823,9 +835,9 @@ export default function FreelancerContractsContent() {
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/freelancer/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-3.5 w-3.5" />
                             </button>
-                            <button type="button" className="rounded-lg bg-white p-2 text-gray-400 hover:bg-gray-50">
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </button>
+                            <KebabDropdown>
+                              <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                            </KebabDropdown>
                           </div>
                         </div>
                       </div>
@@ -902,13 +914,16 @@ export default function FreelancerContractsContent() {
                               <p className="text-[10px] text-orange-500 font-bold">{getDueLabel(contract.dueDate)}</p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 items-center">
                             <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-black text-gray-700 hover:bg-gray-50">
                               View Details <ChevronRight className="h-3.5 w-3.5" />
                             </button>
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/freelancer/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-4 w-4" />
                             </button>
+                            <KebabDropdown>
+                              <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                            </KebabDropdown>
                           </div>
                         </div>
 
@@ -939,11 +954,16 @@ export default function FreelancerContractsContent() {
                           </div>
                           <div className="flex flex-col items-stretch gap-2">
                             <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] font-black text-gray-700 hover:bg-gray-50">
-                              View Details <ChevronRight className="h-3 w-3" />
+                              View Details <ChevronRight className="h-3.5 w-3.5" />
                             </button>
-                            <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/freelancer/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-500 hover:bg-gray-50">
-                              <MessageSquare className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/freelancer/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="flex-1 flex items-center justify-center rounded-lg border border-gray-200 bg-white py-2 text-gray-500 hover:bg-gray-50">
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              </button>
+                              <KebabDropdown>
+                                <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                              </KebabDropdown>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1549,6 +1569,20 @@ export default function FreelancerContractsContent() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* DISPUTE FORM MODAL */}
+      {isDisputeModalOpen && disputeContract && (
+        <DisputeFormModal
+          isOpen={isDisputeModalOpen}
+          onClose={() => {
+            setIsDisputeModalOpen(false);
+            setDisputeContract(null);
+          }}
+          contractId={disputeContract.id}
+          contractTitle={disputeContract.title}
+          raisedBy="freelancer"
+        />
       )}
     </section>
   );

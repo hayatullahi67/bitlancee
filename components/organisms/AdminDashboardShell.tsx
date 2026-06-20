@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
 import {
+  AlertCircle,
   Bell,
   BriefcaseBusiness,
   CircleDollarSign,
@@ -26,6 +27,7 @@ const NAV_ITEMS = [
   { label: "Messages", href: "/admin/dashboard/messages", icon: MessageSquare },
   { label: "Submissions", href: "/admin/dashboard/submissions", icon: UploadCloud },
   { label: "Escrow", href: "/admin/dashboard/escrow", icon: CircleDollarSign },
+  { label: "Disputes", href: "/admin/dashboard/disputes", icon: AlertCircle },
   { label: "Notifications", href: "/admin/dashboard/notifications", icon: Bell },
 ];
 

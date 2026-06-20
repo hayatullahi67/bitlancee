@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ArrowLeft, MoreVertical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
@@ -12,14 +12,28 @@ interface ChatHeaderProps {
     profileUrl?: string;
   };
   onBack: () => void;
+  onViewJobDetails?: () => void;
+  onRaiseDispute?: () => void;
 }
 
-export default function ChatHeader({ sender, onBack }: ChatHeaderProps) {
+export default function ChatHeader({ sender, onBack, onViewJobDetails, onRaiseDispute }: ChatHeaderProps) {
   const router = useRouter();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
     <div
-      className="bg-[#F6F3F1] border-b border-[#e8e6e1] px-3 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 min-h-[56px]"
+      className="bg-[#F6F3F1] border-b border-[#e8e6e1] px-3 py-2 sm:px-4 sm:py-3 flex items-center gap-2 sm:gap-3 min-h-[56px] relative z-[50]"
       style={{ minHeight: '48px' }}
     >
       <button
@@ -65,9 +79,46 @@ export default function ChatHeader({ sender, onBack }: ChatHeaderProps) {
         >
           View Profile
         </button>
-        <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full">
-          <MoreVertical className="w-5 h-5" />
-        </button>
+
+        {/* Dropdown Menu */}
+        {(onViewJobDetails || onRaiseDispute) && (
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen(!menuOpen)}
+              className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 mt-1 w-48 rounded-xl border border-[#EAE7E2] bg-white py-1.5 shadow-lg z-[200]">
+                {onViewJobDetails && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onViewJobDetails();
+                      setMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-xs font-bold text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    View Job Details
+                  </button>
+                )}
+                {onRaiseDispute && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onRaiseDispute();
+                      setMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-xs font-bold text-red-600 hover:bg-red-50 transition-colors"
+                  >
+                    Raise Dispute
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

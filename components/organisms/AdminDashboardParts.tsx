@@ -35,8 +35,8 @@ export function Metric({
 }: {
   icon: React.ReactNode;
   label: string;
-  value: string | number;
-  detail: string;
+  value: React.ReactNode;
+  detail?: string;
 }) {
   return (
     <div className="rounded-[8px] border border-[#E7E1D8] bg-white p-4 shadow-sm">
@@ -49,7 +49,7 @@ export function Metric({
           <span className="[&_svg]:h-5 [&_svg]:w-5">{icon}</span>
         </div>
       </div>
-      <div className="mt-3 text-xs font-semibold text-[#6b6762]">{detail}</div>
+      {detail && <div className="mt-3 text-xs font-semibold text-[#6b6762]">{detail}</div>}
     </div>
   );
 }

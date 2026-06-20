@@ -1356,6 +1356,14 @@ export default function ClientMessagesPage() {
                     onRequestChanges={handleRequestChanges}
                     pendingSubmissionJob={pendingSubmissionJob}
                     onOpenContractModal={handleOpenContractModal}
+                    jobId={selectedConversation.jobId}
+                    jobTitle={selectedConversation.jobTitle}
+                    contractId={
+                      selectedConversation.jobId && selectedConversation.freelancerId
+                        ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
+                        : selectedConversation.id
+                    }
+                    viewerRole_disputeRole="client"
                   />
 
                   {contractModalContractId ? (

@@ -815,6 +815,14 @@ export default function MessagesPage() {
                   workStatus={selectedConversation.workStatus}
                   onSubmitWork={handleSubmitWorkFromMessage}
                   onVerifyPayment={handleVerifyPayment}
+                  jobId={selectedConversation.jobId}
+                  jobTitle={selectedConversation.jobTitle}
+                  contractId={
+                    selectedConversation.jobId && selectedConversation.freelancerId
+                      ? `${selectedConversation.jobId}_${selectedConversation.freelancerId}`
+                      : selectedConversation.id
+                  }
+                  viewerRole_disputeRole="freelancer"
                 />
               ) : (
                 <div className="h-full flex items-center justify-center text-gray-500">

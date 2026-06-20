@@ -1,10 +1,11 @@
-
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Search, ChevronRight, MessageSquare, MoreVertical, CheckCircle2, SortDesc, Shield, AlertCircle, Clock, Calendar, ArrowRight } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Button from "@/components/atoms/Button";
-import { Calendar, Search, MessageSquare, MoreVertical, ChevronRight, CheckCircle2, Clock, AlertCircle, ArrowRight, Filter, SortDesc, Shield } from "lucide-react";
+import { KebabDropdown, KebabMenuItem } from '@/components/ui/dropdown-menu';
+import DisputeFormModal from '@/components/organisms/DisputeFormModal';
 import { firebaseAuth, firebaseDb } from "@/lib/firebase";
 import { sendUserNotification } from "@/lib/notifications";
 import { onAuthStateChanged } from "firebase/auth";
@@ -162,11 +163,11 @@ function Avatar({ name, size = "md", imageUrl }: { name: string; size?: "sm" | "
   return (
     <div className={`flex-shrink-0 flex items-center justify-center rounded-full font-black text-white overflow-hidden ${sizeClass} ${getAvatarColor(name)}`}>
       {imageUrl && !imgError ? (
-        <img 
-          src={imageUrl} 
-          alt={name} 
-          className="h-full w-full object-cover" 
-          onError={() => setImgError(true)} 
+        <img
+          src={imageUrl}
+          alt={name}
+          className="h-full w-full object-cover"
+          onError={() => setImgError(true)}
         />
       ) : getInitials(name)}
     </div>
@@ -355,6 +356,13 @@ export default function ClientContractsContent() {
   const [activeTab, setActiveTab] = useState<"contracts" | "submitted">("contracts");
   const [submittedJobs, setSubmittedJobs] = useState<SubmittedJob[]>([]);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
+  const [disputeContract, setDisputeContract] = useState<{ id: string; title: string } | null>(null);
+
+  const openDispute = (contractId: string, contractTitle: string) => {
+    setDisputeContract({ id: contractId, title: contractTitle });
+    setIsDisputeModalOpen(true);
+  };
   const [pendingApprovalJobId, setPendingApprovalJobId] = useState<string | null>(null);
   const [approvalErrorMessage, setApprovalErrorMessage] = useState<string>("");
   const [isApproving, setIsApproving] = useState(false);
@@ -478,7 +486,7 @@ export default function ClientContractsContent() {
                       companyLogo = (jobSnap.data() as any).companyLogo || "";
                       companyLogoCache.current[c.jobId] = companyLogo;
                     }
-                  } catch {}
+                  } catch { }
                 }
               }
               return { ...c, freelancer, companyLogo };
@@ -978,7 +986,7 @@ export default function ClientContractsContent() {
                             {totalMs > 0 && <p className="text-[10px] text-gray-400 mt-0.5">Milestone {Math.min(releasedCount + 1, totalMs)} of {totalMs}</p>}
                           </div>
                           {/* Action buttons */}
-                          <div className="flex gap-2 pt-1">
+                          <div className="flex gap-2 pt-1 items-center">
                             {statusLabel === "Needs Review" && (
                               <button type="button" onClick={() => { const job = submittedJobs.find((j) => j.contractId === contract.id && j.status === "pending"); if (job) handleApproveSubmission(job.id); }} className="flex-1 rounded-lg bg-gray-900 px-3 py-2.5 text-[12px] font-black text-white hover:bg-gray-800">
                                 Review Submission
@@ -995,6 +1003,9 @@ export default function ClientContractsContent() {
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-4 w-4" />
                             </button>
+                            <KebabDropdown>
+                              <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                            </KebabDropdown>
                           </div>
                         </div>
 
@@ -1045,9 +1056,9 @@ export default function ClientContractsContent() {
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-3.5 w-3.5" />
                             </button>
-                            <button type="button" className="rounded-lg bg-white p-2 text-gray-400 hover:bg-gray-50">
-                              <MoreVertical className="h-3.5 w-3.5" />
-                            </button>
+                            <KebabDropdown>
+                              <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                            </KebabDropdown>
                           </div>
                         </div>
                       </div>
@@ -1127,13 +1138,16 @@ export default function ClientContractsContent() {
                               <p className="text-[10px] text-orange-500 font-bold">{getDueLabel(contract.dueDate)}</p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 items-center">
                             <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex-1 flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-[12px] font-black text-gray-700 hover:bg-gray-50">
                               View Details <ChevronRight className="h-3.5 w-3.5" />
                             </button>
                             <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="rounded-lg border border-gray-200 bg-white p-2.5 text-gray-500 hover:bg-gray-50">
                               <MessageSquare className="h-4 w-4" />
                             </button>
+                            <KebabDropdown>
+                              <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                            </KebabDropdown>
                           </div>
                         </div>
 
@@ -1168,9 +1182,14 @@ export default function ClientContractsContent() {
                             <button type="button" onClick={() => { setSelectedId(contract.id); setIsModalOpen(true); }} className="flex items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-[12px] font-black text-gray-700 hover:bg-gray-50">
                               View Details <ChevronRight className="h-3 w-3" />
                             </button>
-                            <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="flex items-center justify-center rounded-lg border border-gray-200 bg-white px-3 py-2 text-gray-500 hover:bg-gray-50">
-                              <MessageSquare className="h-3.5 w-3.5" />
-                            </button>
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => { if (!contract.jobId || !contract.freelancerId) return; router.push(`/client/dashboard/messages?chat=${createConversationId(contract.jobId, contract.freelancerId)}`); }} className="flex-1 flex items-center justify-center rounded-lg border border-gray-200 bg-white py-2 text-gray-500 hover:bg-gray-50">
+                                <MessageSquare className="h-3.5 w-3.5" />
+                              </button>
+                              <KebabDropdown>
+                                <KebabMenuItem onSelect={() => openDispute(contract.id, contract.title)}>Raise Dispute</KebabMenuItem>
+                              </KebabDropdown>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1773,6 +1792,20 @@ export default function ClientContractsContent() {
             })()}
           </div>
         </div>
+      )}
+
+      {/* DISPUTE FORM MODAL */}
+      {isDisputeModalOpen && disputeContract && (
+        <DisputeFormModal
+          isOpen={isDisputeModalOpen}
+          onClose={() => {
+            setIsDisputeModalOpen(false);
+            setDisputeContract(null);
+          }}
+          contractId={disputeContract.id}
+          contractTitle={disputeContract.title}
+          raisedBy="client"
+        />
       )}
     </section>
   );
