@@ -751,14 +751,6 @@ export default function MessagesPage() {
       return "funded";
     }
 
-    if (blinkStatus === "EXPIRED") {
-      await updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
-        paymentStatus: "expired",
-        updatedAt: serverTimestamp(),
-      });
-      return "expired";
-    }
-
     return "pending";
   };
 

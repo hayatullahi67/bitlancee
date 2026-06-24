@@ -552,6 +552,8 @@ export default function ClientMessagesPage() {
     }).catch(() => undefined);
   }, [selectedChat, currentUserId]);
 
+  const selectedConversation = conversations.find((c) => c.id === selectedChat) ?? null;
+
   // ── Auto-verify invoice on chat open / page refresh ─────────────────────
   // If there's a pending invoice_created status when the chat loads, silently
   // check Blink right away. If it's expired, mark it expired in Firestore so
@@ -574,6 +576,12 @@ export default function ClientMessagesPage() {
         if (!res.ok) return;
         const data = await res.json();
         const status = data?.data?.lnInvoicePaymentStatusByPaymentRequest?.status;
+        if (status === "PAID") {
+          void handleVerifyPayment(paymentRequest);
+        } else {
+          await clearUnpaidInvoice(selectedConversation.id, contractId);
+        }
+        return;
 
         if (status === "EXPIRED") {
           // Mark expired in Firestore so the UI shows "Generate Fresh Invoice"
@@ -639,7 +647,6 @@ export default function ClientMessagesPage() {
       });
   }, [conversations, currentUserId, presenceMap]);
 
-  const selectedConversation = conversations.find((c) => c.id === selectedChat) ?? null;
   const selectedMessage = selectedConversation
     ? messageList.find((m) => m.id === selectedConversation.id) ?? null
     : null;
@@ -1348,14 +1355,6 @@ export default function ClientMessagesPage() {
       }).catch(console.error);
 
       return "funded";
-    }
-
-    if (blinkStatus === "EXPIRED") {
-      await updateDoc(doc(firebaseDb, "conversations", selectedConversation.id), {
-        paymentStatus: "expired",
-        updatedAt: serverTimestamp(),
-      });
-      return "expired";
     }
 
     return "pending";
