@@ -1792,7 +1792,7 @@ const calculateInstallmentAmount = (total: number, installments: number, install
   return base + (safeInstallment <= remainder ? 1 : 0);
 };
 
-const THIRTY_MINUTES_MS = 10 * 60 * 1000;
+const THIRTY_MINUTES_MS = 1 * 60 * 1000;
 
 const getTimestampMs = (value: unknown) => {
   if (!value) return 0;
@@ -2597,15 +2597,16 @@ export default function ClientMessagesPage() {
       : {};
     const fundedAmount = normalizeFundedAmount(existingFundingData);
     const releasedAmount = normalizeReleasedAmount(existingFundingData);
+    const originalJobAmount =
+      parseSats(contractData.budget) ||
+      parseSats(contractData.amount) ||
+      Number(contractData.paymentTotalAmountSats ?? 0) ||
+      selectedConversation.paymentTotalAmountSats ||
+      selectedConversation.paymentAmountSats ||
+      0;
     const totalAmount =
-      chosenAmount && chosenAmount > 0
-        ? chosenAmount
-        : selectedConversation.paymentTotalAmountSats ||
-          Number(contractData.paymentTotalAmountSats ?? 0) ||
-          parseSats(contractData.budget) ||
-          parseSats(contractData.amount) ||
-          selectedConversation.paymentAmountSats ||
-          0;
+      chosenAmount && chosenAmount > 0 ? chosenAmount : originalJobAmount;
+    const jobAmountSats = originalJobAmount || totalAmount;
     const hasFundedAny = fundedAmount > 0;
     const paymentInstallments = hasFundedAny
       ? (selectedConversation.paymentInstallments || Number(contractData.paymentInstallments ?? 0) || clampInstallments(installments))
@@ -2692,7 +2693,7 @@ export default function ClientMessagesPage() {
       freelancerId: selectedConversation.freelancerId,
       paymentProvider: "blink",
       paymentStatus: "invoice_created",
-      paymentTotalAmountSats: totalAmount,
+      paymentTotalAmountSats: jobAmountSats,
       paymentSubtotalSats: totalAmount,
       platformFeePercent: PLATFORM_FEE_PERCENT,
       platformFeeSats,
@@ -2744,7 +2745,7 @@ export default function ClientMessagesPage() {
           clientName: selectedConversation.clientName,
           freelancerId: selectedConversation.freelancerId,
           freelancerName: selectedConversation.freelancerName,
-          jobAmountSats: totalAmount,
+          jobAmountSats: jobAmountSats,
           platformFeePercent: PLATFORM_FEE_PERCENT,
           platformFeeSats,
           totalClientPayableSats: totalClientPayable,
