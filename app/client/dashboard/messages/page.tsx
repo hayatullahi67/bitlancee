@@ -1792,7 +1792,7 @@ const calculateInstallmentAmount = (total: number, installments: number, install
   return base + (safeInstallment <= remainder ? 1 : 0);
 };
 
-const THIRTY_MINUTES_MS = 1 * 60 * 1000;
+const THIRTY_MINUTES_MS = 30 * 60 * 1000;
 
 const getTimestampMs = (value: unknown) => {
   if (!value) return 0;
