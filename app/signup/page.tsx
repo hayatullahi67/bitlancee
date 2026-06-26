@@ -37,7 +37,15 @@ function SignupFormContent() {
 
   // Sync URL parameter with the active tab
   useEffect(() => {
-    const type = searchParams.get('type');
+    const getParamType = () => {
+      let type = searchParams.get('type');
+      if (!type && typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        type = params.get('type');
+      }
+      return type;
+    };
+    const type = getParamType();
     if (type === 'work' || type === 'hire') {
       setUserType(type);
     }

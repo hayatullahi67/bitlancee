@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 
 const btcValues = [
   "+0.81250 BTC",
@@ -12,7 +12,6 @@ const btcValues = [
 ];
 
 export default function Hero() {
-  const router = useRouter();
   const [payIndex, setPayIndex] = useState(0);
   const [visible, setVisible] = useState(true);
 
@@ -59,19 +58,19 @@ export default function Hero() {
 
             {/* Buttons */}
             <div className="mt-8 flex flex-row flex-wrap items-center justify-start gap-4 w-full">
-              <button
-                onClick={() => router.push('/signup?type=work')}
+              <Link
+                href="/signup?type=work"
                 className="font-inter inline-flex items-center justify-center bg-[#F97316] text-white text-sm sm:text-base font-bold rounded-xl px-7 py-3.5 hover:bg-[#EA6C0A] transition-all duration-200 hover:-translate-y-[2px] hover:shadow-lg hover:shadow-orange-500/10 cursor-pointer min-w-[140px]"
               >
                 Find Work
-              </button>
+              </Link>
 
-              <button
-                onClick={() => router.push('/signup?type=hire')}
+              <Link
+                href="/signup?type=hire"
                 className="font-inter inline-flex items-center justify-center bg-white text-[#F97316] border border-[#F97316] text-sm sm:text-base font-bold rounded-xl px-7 py-3.5 hover:bg-orange-50/50 transition-all duration-200 hover:-translate-y-[2px] hover:shadow-lg hover:shadow-gray-200/50 cursor-pointer min-w-[140px]"
               >
                 Post a Job
-              </button>
+              </Link>
             </div>
 
             {/* Social Proof */}

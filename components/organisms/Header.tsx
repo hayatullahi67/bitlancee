@@ -289,7 +289,7 @@ export default function Header() {
                 <Button
                   variant="ghost"
                   className="w-full justify-center rounded-full bg-[#F7931A] hover:bg-[#F7931A] px-6 py-2 shadow-sm font-medium text-white"
-                  href="/register"
+                  href="/signup"
                 >
                   Sign Up
                 </Button>
