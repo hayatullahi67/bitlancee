@@ -297,7 +297,7 @@ export default function FreelancerOnboardingPage() {
             <div>
               <p className="text-[14px] font-bold text-[#1a1a1a] mb-0.5">Choose your primary skill area</p>
               <p className="text-[12px] text-[#9e9690] mb-3">Select the category that best represents your expertise.</p>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] md:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 min-[350px]:grid-cols-2 md:grid-cols-4 gap-2">
                 {CATEGORIES.slice(0, 8).map((cat) => (
                   <button
                     key={cat.name}
@@ -320,7 +320,7 @@ export default function FreelancerOnboardingPage() {
                 ))}
               </div>
               {CATEGORIES.length > 8 && (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] md:grid-cols-4 gap-2 mt-2">
+                <div className="grid grid-cols-1 min-[350px]:grid-cols-2 md:grid-cols-4 gap-2 mt-2">
                   {CATEGORIES.slice(8).map((cat) => (
                     <button
                       key={cat.name}

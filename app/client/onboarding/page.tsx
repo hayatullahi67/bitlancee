@@ -290,7 +290,7 @@ export default function ClientOnboardingPage() {
           <div>
             <div className="mb-5">
               <label className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#999] mb-2 block">Industry</label>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(90px,1fr))] md:grid-cols-4 gap-2">
+              <div className="grid grid-cols-1 min-[350px]:grid-cols-2 md:grid-cols-4 gap-2">
                 {INDUSTRIES.map((ind) => (
                   <button
                     key={ind.name}
