@@ -105,7 +105,7 @@ const FAQS = [
   },
 ];
 
-export default function HelpCenterPage() {
+export default function FreelancerDashboardHelpPage() {
   const [isAiActive, setIsAiActive] = useState(false);
   const [prefilledMsg, setPrefilledMsg] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -134,7 +134,7 @@ export default function HelpCenterPage() {
   return (
     <div className="min-h-screen bg-[#FCF9F7] font-sans text-[#1a1a1a]">
       <div className="flex">
-        <FreelancerSidebar active="/help" />
+        <FreelancerSidebar active="/freelancer/dashboard/help" />
 
         <main className="flex-1 lg:ml-0">
           <div className="min-h-screen overflow-y-auto max-md:pt-[58px]">
@@ -145,7 +145,7 @@ export default function HelpCenterPage() {
                   onOpenChange={setIsAiActive}
                   fullPage
                   className="w-full"
-                  intro="Hi, I can help with the freelancer and client dashboards. Ask me how proposals, jobs, escrow, contracts, messages, or earnings work."
+                  intro="Hi, I can help with the freelancer dashboard. Ask me how proposals, jobs, escrow, contracts, messages, or earnings work."
                   prefilledQuestion={prefilledMsg}
                 />
               ) : (
@@ -216,10 +216,10 @@ export default function HelpCenterPage() {
                           </span>
                           <div className="flex flex-row items-center gap-2 overflow-x-auto scrollbar-none pb-0.5">
                             <button
-                              onClick={() => handleSuggestionClick("How do I post a job?")}
+                              onClick={() => handleSuggestionClick("How do I apply for a job?")}
                               className="whitespace-nowrap text-[10px] text-gray-700 bg-white border border-[#EAE7E2] hover:border-[#FF6A00] px-2.5 py-1 rounded-lg font-bold transition cursor-pointer"
                             >
-                              How do I post a job?
+                              How do I apply for a job?
                             </button>
                             <button
                               onClick={() => handleSuggestionClick("How does escrow work?")}
@@ -228,10 +228,10 @@ export default function HelpCenterPage() {
                               How does escrow work?
                             </button>
                             <button
-                              onClick={() => handleSuggestionClick("Why was my payment declined?")}
+                              onClick={() => handleSuggestionClick("How do I submit work?")}
                               className="whitespace-nowrap text-[10px] text-gray-700 bg-white border border-[#EAE7E2] hover:border-[#FF6A00] px-2.5 py-1 rounded-lg font-bold transition cursor-pointer"
                             >
-                              Why was my payment declined?
+                              How do I submit work?
                             </button>
                           </div>
                         </div>

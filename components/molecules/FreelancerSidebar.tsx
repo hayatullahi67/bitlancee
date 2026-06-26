@@ -312,7 +312,7 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard', hi
                 className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold text-sm transition-all ${isActive
                   ? 'bg-white text-[#1a1a1a] shadow-sm'
                   : 'text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a]'
-                }`}
+                  }`}
               >
                 <span className={isActive ? 'text-orange-500' : 'text-[#9e9690]'}>
                   {item.icon}
@@ -336,12 +336,18 @@ export default function FreelancerSidebar({ active = '/freelancer/dashboard', hi
         {/* Bottom: Help Center + Logout Area */}
         <div className="flex flex-col gap-1 border-t border-orange-100 pt-6">
           <Link
-            href="/help"
-            className="flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a] transition-all"
+            href="/freelancer/dashboard/help"
+            className={`flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold transition-all ${
+              active === "/freelancer/dashboard/help" || active === "/help"
+                ? "bg-white text-[#1a1a1a] shadow-sm"
+                : "text-[#6b6560] hover:bg-white/50 hover:text-[#1a1a1a]"
+            }`}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[#9e9690]">
-              <circle cx="12" cy="12" r="9" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
+            <span className={active === "/freelancer/dashboard/help" || active === "/help" ? "text-orange-500" : "text-[#9e9690]"}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" />
+              </svg>
+            </span>
             Help Center
           </Link>
 

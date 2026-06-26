@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Button from "@/components/atoms/Button";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +16,7 @@ export default function AISupportChat({
   onOpenChange,
   fullPage = false,
   className,
+  prefilledQuestion = "",
 }: {
   buttonLabel?: string;
   intro?: string;
@@ -23,6 +24,7 @@ export default function AISupportChat({
   onOpenChange?: (open: boolean) => void;
   fullPage?: boolean;
   className?: string;
+  prefilledQuestion?: string;
 }) {
   const [internalOpen, setInternalOpen] = useState(false);
   const [input, setInput] = useState("");
@@ -31,6 +33,7 @@ export default function AISupportChat({
   const [messages, setMessages] = useState<SupportMessage[]>([
     { role: "assistant", content: intro },
   ]);
+  const [lastPrefilled, setLastPrefilled] = useState("");
   const isChatOpen = open ?? internalOpen;
 
   const setIsChatOpen = (nextOpen: boolean) => {
@@ -39,6 +42,53 @@ export default function AISupportChat({
       setInternalOpen(nextOpen);
     }
   };
+
+  useEffect(() => {
+    if (!isChatOpen) {
+      setLastPrefilled("");
+    }
+  }, [isChatOpen]);
+
+  useEffect(() => {
+    if (isChatOpen && prefilledQuestion && prefilledQuestion !== lastPrefilled) {
+      setLastPrefilled(prefilledQuestion);
+      
+      const triggerMessage = async () => {
+        const text = prefilledQuestion.trim();
+        if (!text) return;
+        
+        let currentMessages: SupportMessage[] = [];
+        setMessages((prev) => {
+          currentMessages = [...prev, { role: "user", content: text }];
+          return currentMessages;
+        });
+        
+        setIsSending(true);
+        setErrorMessage("");
+        
+        try {
+          const response = await fetch("/api/ai-support", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ messages: currentMessages }),
+          });
+          const data = (await response.json()) as { reply?: string; error?: string };
+
+          if (!response.ok || !data.reply) {
+            throw new Error(data.error || "AI support is unavailable right now.");
+          }
+
+          setMessages((current) => [...current, { role: "assistant", content: data.reply || "" }]);
+        } catch (error) {
+          setErrorMessage(error instanceof Error ? error.message : "AI support is unavailable right now.");
+        } finally {
+          setIsSending(false);
+        }
+      };
+      
+      triggerMessage();
+    }
+  }, [isChatOpen, prefilledQuestion, lastPrefilled]);
 
   const sendMessage = async () => {
     const text = input.trim();
